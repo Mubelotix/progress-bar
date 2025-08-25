@@ -10,6 +10,7 @@ pub struct ProgressBar {
     action: String,
     action_color: Color,
     action_style: Style,
+    action_width: usize,
     start: Option<Instant>,
 }
 
@@ -54,6 +55,7 @@ impl ProgressBar {
             action: String::new(),
             action_color: Color::Black,
             action_style: Style::Normal,
+            action_width: 12,
             start: None,
         }
     }
@@ -66,23 +68,30 @@ impl ProgressBar {
         }
     }
 
-    fn set_good_size(text: &str) -> String {
-        match text.len() {
-            12 => text.to_string(),
-            len if len > 12 => text[..12].to_string(),
-            _ => {
-                let mut text = text.to_string();
-                while text.len() < 12 {
-                    text.insert(0, ' ');
-                }
-                text
-            },
+    fn set_good_size(&self, text: &str) -> String {
+        let text_len = text.len();
+        if text_len == self.action_width {
+            text.to_string()
+        } else if text_len > self.action_width {
+            text[..self.action_width].to_string()
+        } else {
+            let mut text = text.to_string();
+            while text.len() < self.action_width {
+                text.insert(0, ' ');
+            }
+            text
         }
     }
 
     /// Set the width of the progress bar in caracters in console (default: 50)
     pub fn set_width(&mut self, w: usize) {
         self.width = w;
+        self.display();
+    }
+
+    /// Set the width of the action in characters in the console (default: 12)
+    pub fn set_action_width(&mut self, w: usize) {
+        self.action_width = w;
         self.display();
     }
 
@@ -125,7 +134,7 @@ impl ProgressBar {
 
     /// Set the global action displayed before the progress bar.
     pub fn set_action(&mut self, a: &str, c: Color, s: Style) {
-        self.action = ProgressBar::set_good_size(a);
+        self.action = self.set_good_size(a);
         self.action_color = c;
         self.action_style = s;
         self.display();
@@ -133,14 +142,14 @@ impl ProgressBar {
 
     /// Log something, without display update
     pub fn print_final_info(&mut self, info_name: &str, text: &str, info_color: Color, info_style: Style) {
-        let info_name = ProgressBar::set_good_size(info_name);
+        let info_name = self.set_good_size(info_name);
         println!("{}{}{}\x1B[0m {}\x1B[K", info_style, info_color, info_name, text);
         self.progress = 0;
     }
 
     /// Log something
     pub fn print_info(&mut self, info_name: &str, text: &str, info_color: Color, info_style: Style) {
-        let info_name = ProgressBar::set_good_size(info_name);
+        let info_name = self.set_good_size(info_name);
         println!("{}{}{}\x1B[0m {}\x1B[K", info_style, info_color, info_name, text);
         self.display();
     }

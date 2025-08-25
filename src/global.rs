@@ -47,6 +47,13 @@ pub fn set_progress_bar_width(width: usize) {
     }
 }
 
+pub fn set_action_width(width: usize) {
+    match *CURRENT_PROGRESS_BAR.lock().unwrap() {
+        Some(ref mut progress_bar) => progress_bar.set_action_width(width),
+        None => eprintln!("ERROR: Unable to set progress bar width (no progress bar)"),
+    }
+}
+
 pub fn set_progress_bar_max(max: usize) {
     match *CURRENT_PROGRESS_BAR.lock().unwrap() {
         Some(ref mut progress_bar) => progress_bar.set_max(max),

@@ -83,7 +83,7 @@ impl ProgressBar {
         }
     }
 
-    /// Set the width of the progress bar in caracters in console (default: 50)
+    /// Set the width of the progress bar in characters in console (default: 50)
     pub fn set_width(&mut self, w: usize) {
         self.width = w;
         self.display();

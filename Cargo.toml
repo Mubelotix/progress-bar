@@ -6,7 +6,7 @@ edition = "2021"
 license = "MIT"
 description = "A simple and elegant crate for displaying progress bars in the terminal. It can estimate and display the remaining time, and includes logging utilities that integrate cleanly with your progress bar output."
 readme = "README.md"
-repository = "https://github.com/Mubelotix/cli_progress_bar"
+repository = "https://github.com/Mubelotix/progress-bar"
 categories = ["command-line-interface"]
 
 [dependencies]

@@ -1,7 +1,12 @@
+use crate::{
+    pb::ProgressBar,
+    style::{Color, Style},
+    ProgressStyle,
+};
 use std::sync::{LazyLock, Mutex};
-use crate::{pb::ProgressBar, style::{Color, Style}};
 
-pub static CURRENT_PROGRESS_BAR: LazyLock<Mutex<Option<ProgressBar>>> = LazyLock::new(|| Mutex::new(None));
+pub static CURRENT_PROGRESS_BAR: LazyLock<Mutex<Option<ProgressBar>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 pub fn has_progress_bar() -> bool {
     CURRENT_PROGRESS_BAR.lock().unwrap().is_some()
@@ -50,7 +55,7 @@ pub fn set_progress_bar_width(width: usize) {
 pub fn set_action_width(width: usize) {
     match *CURRENT_PROGRESS_BAR.lock().unwrap() {
         Some(ref mut progress_bar) => progress_bar.set_action_width(width),
-        None => eprintln!("ERROR: Unable to set progress bar width (no progress bar)"),
+        None => eprintln!("ERROR: Unable to set action width (no progress bar)"),
     }
 }
 
@@ -65,20 +70,29 @@ pub fn set_progress_bar_max(max: usize) {
 pub fn enable_eta() {
     match *CURRENT_PROGRESS_BAR.lock().unwrap() {
         Some(ref mut progress_bar) => progress_bar.enable_eta(),
-        None => eprintln!("ERROR: Unable to set progress bar max (no progress bar)"),
+        None => eprintln!("ERROR: Unable to enable ETA (no progress bar)"),
     }
 }
 
 pub fn disable_eta() {
     match *CURRENT_PROGRESS_BAR.lock().unwrap() {
         Some(ref mut progress_bar) => progress_bar.disable_eta(),
-        None => eprintln!("ERROR: Unable to set progress bar max (no progress bar)"),
+        None => eprintln!("ERROR: Unable to disable ETA (no progress bar)"),
+    }
+}
+
+pub fn set_progress_style(style: ProgressStyle) {
+    match *CURRENT_PROGRESS_BAR.lock().unwrap() {
+        Some(ref mut progress_bar) => progress_bar.set_progress_style(style),
+        None => eprintln!("ERROR: Unable to set progress bar style (no progress bar)"),
     }
 }
 
 pub fn print_progress_bar_info(info_name: &str, text: &str, info_color: Color, info_style: Style) {
     match *CURRENT_PROGRESS_BAR.lock().unwrap() {
-        Some(ref mut progress_bar) => progress_bar.print_info(info_name, text, info_color, info_style),
+        Some(ref mut progress_bar) => {
+            progress_bar.print_info(info_name, text, info_color, info_style)
+        }
         None => eprintln!("ERROR: Unable to print progress bar info (no progress bar)"),
     }
 }
@@ -90,9 +104,16 @@ pub fn set_progress_bar_action(action: &str, color: Color, style: Style) {
     }
 }
 
-pub fn print_progress_bar_final_info(info_name: &str, text: &str, info_color: Color, info_style: Style) {
+pub fn print_progress_bar_final_info(
+    info_name: &str,
+    text: &str,
+    info_color: Color,
+    info_style: Style,
+) {
     match *CURRENT_PROGRESS_BAR.lock().unwrap() {
-        Some(ref mut progress_bar) => progress_bar.print_final_info(info_name, text, info_color, info_style),
+        Some(ref mut progress_bar) => {
+            progress_bar.print_final_info(info_name, text, info_color, info_style)
+        }
         None => eprintln!("ERROR: Unable to print progress bar final info (no progress bar)"),
     }
 }

@@ -19,7 +19,7 @@ pub enum Color {
     LightYellow,
     LightBlue,
     LightMagenta,
-    LightCyan
+    LightCyan,
 }
 
 impl fmt::Display for Color {
@@ -40,13 +40,13 @@ impl fmt::Display for Color {
             Color::LightYellow => write!(f, "\x1B[93m"),
             Color::LightBlue => write!(f, "\x1B[94m"),
             Color::LightMagenta => write!(f, "\x1B[95m"),
-            Color::LightCyan => write!(f, "\x1B[96m")
+            Color::LightCyan => write!(f, "\x1B[96m"),
         }
     }
 }
 
 pub enum Style {
-    Normal, 
+    Normal,
     Bold,
     Dim,
     Italic,
@@ -71,4 +71,13 @@ impl fmt::Display for Style {
             Style::StrikeThrough => write!(f, "\x1B[9m"),
         }
     }
+}
+
+pub enum ProgressStyle {
+    /// A number that shows how many actions have been finished and how many actions there are. Example: 23/57
+    Number,
+    /// A percentage of the completed work is shown. Example: 32%
+    Percentage,
+    /// No indication of progression is shown next to the progress bar.
+    Empty,
 }

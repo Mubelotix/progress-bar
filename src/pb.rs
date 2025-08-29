@@ -19,13 +19,13 @@ impl ProgressBar {
     /// Creates a progress bar with the total number of actions.  
     /// You will need to call inc method when an action is completed and the bar progress will be incremented by 1.  
     /// Don't print things with print macro while the bar is running; use the print_info method instead.  
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```
     /// use progress_bar::{pb::ProgressBar, Color, Style};
     /// use std::{thread, time};
-    /// 
+    ///
     /// // if you have 81 pages to load
     /// let mut progress_bar = ProgressBar::new(81);
     /// progress_bar.set_action("Loading", Color::Blue, Style::Bold);
@@ -33,7 +33,7 @@ impl ProgressBar {
     /// for i in 0..81 {
     ///     // load page
     ///     thread::sleep(time::Duration::from_millis(10));
-    /// 
+    ///
     ///     // log the result
     ///     if i == 14 {
     ///         progress_bar.print_info("Failed", "https://zefzef.zef", Color::Red, Style::Blink);
@@ -149,27 +149,48 @@ impl ProgressBar {
     }
 
     /// Log something, without display update
-    pub fn print_final_info(&mut self, info_name: &str, text: &str, info_color: Color, info_style: Style) {
+    pub fn print_final_info(
+        &mut self,
+        info_name: &str,
+        text: &str,
+        info_color: Color,
+        info_style: Style,
+    ) {
         let info_name = self.set_good_size(info_name);
-        println!("{}{}{}\x1B[0m {}\x1B[K", info_style, info_color, info_name, text);
+        println!(
+            "{}{}{}\x1B[0m {}\x1B[K",
+            info_style, info_color, info_name, text
+        );
         self.progress = 0;
     }
 
     /// Log something
-    pub fn print_info(&mut self, info_name: &str, text: &str, info_color: Color, info_style: Style) {
+    pub fn print_info(
+        &mut self,
+        info_name: &str,
+        text: &str,
+        info_color: Color,
+        info_style: Style,
+    ) {
         let info_name = self.set_good_size(info_name);
-        println!("{}{}{}\x1B[0m {}\x1B[K", info_style, info_color, info_name, text);
+        println!(
+            "{}{}{}\x1B[0m {}\x1B[K",
+            info_style, info_color, info_name, text
+        );
         self.display();
     }
 
     /// Display the bar
     pub fn display(&self) {
-        print!("{}{}{}\x1B[0m\x1B[K", self.action_style, self.action_color, self.action);
+        print!(
+            "{}{}{}\x1B[0m\x1B[K",
+            self.action_style, self.action_color, self.action
+        );
 
         print!(" [");
         for i in 0..self.width {
-            if i*self.max/self.width < self.progress {
-                if (i+1)*self.max/self.width >= self.progress {
+            if i * self.max / self.width < self.progress {
+                if (i + 1) * self.max / self.width >= self.progress {
                     print!(">");
                 } else {
                     print!("=");
@@ -182,7 +203,10 @@ impl ProgressBar {
         print!("] ");
         match self.progress_style {
             ProgressStyle::Number => print!("{}/{}", self.progress, self.max),
-            ProgressStyle::Percentage => print!("{}%", (self.progress as f64 / self.max as f64 * 100.0) as usize),
+            ProgressStyle::Percentage => print!(
+                "{}%",
+                (self.progress as f64 / self.max as f64 * 100.0) as usize
+            ),
             ProgressStyle::Empty => (),
         }
 
@@ -204,9 +228,18 @@ impl ProgressBar {
                 let eta = match remaining_ms {
                     0..=3_000 => format!("{}ms", remaining_time.ceil() as usize),
                     3_001..=SECS_110 => format!("{}s", (remaining_time / 1000.).ceil() as usize),
-                    SECS_110..=MINS_110 => format!("{} minutes", (remaining_time / (1000. * 60.)).ceil() as usize),
-                    MINS_110..=HOURS_46 => format!("{} hours", (remaining_time / (1000. * 60. * 60.)).ceil() as usize),
-                    _ => format!("{} days", (remaining_time / (1000. * 60. * 60. * 24.)).ceil() as usize),
+                    SECS_110..=MINS_110 => format!(
+                        "{} minutes",
+                        (remaining_time / (1000. * 60.)).ceil() as usize
+                    ),
+                    MINS_110..=HOURS_46 => format!(
+                        "{} hours",
+                        (remaining_time / (1000. * 60. * 60.)).ceil() as usize
+                    ),
+                    _ => format!(
+                        "{} days",
+                        (remaining_time / (1000. * 60. * 60. * 24.)).ceil() as usize
+                    ),
                 };
 
                 print!(" (ETA {eta})");
@@ -215,9 +248,11 @@ impl ProgressBar {
         print!("\n\x1B[1A");
 
         #[allow(unused_must_use)]
-        { io::stdout().flush(); }
+        {
+            io::stdout().flush();
+        }
     }
-    
+
     /// Mark the end of the progress bar - updates will make a 'new' bar
     pub fn finalize(&mut self) {
         self.progress = 0;

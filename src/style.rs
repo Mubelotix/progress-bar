@@ -19,7 +19,7 @@ pub enum Color {
     LightYellow,
     LightBlue,
     LightMagenta,
-    LightCyan
+    LightCyan,
 }
 
 impl fmt::Display for Color {
@@ -40,13 +40,13 @@ impl fmt::Display for Color {
             Color::LightYellow => write!(f, "\x1B[93m"),
             Color::LightBlue => write!(f, "\x1B[94m"),
             Color::LightMagenta => write!(f, "\x1B[95m"),
-            Color::LightCyan => write!(f, "\x1B[96m")
+            Color::LightCyan => write!(f, "\x1B[96m"),
         }
     }
 }
 
 pub enum Style {
-    Normal, 
+    Normal,
     Bold,
     Dim,
     Italic,
@@ -79,5 +79,5 @@ pub enum ProgressStyle {
     /// A percentage of the completed work is shown. Example: 32%
     Percentage,
     /// No indication of progression is shown next to the progress bar.
-    Empty
+    Empty,
 }

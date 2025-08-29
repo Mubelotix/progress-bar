@@ -1,5 +1,5 @@
 use std::sync::{LazyLock, Mutex};
-use crate::{pb::ProgressBar, style::{Color, Style}};
+use crate::{pb::ProgressBar, style::{Color, Style}, ProgressStyle};
 
 pub static CURRENT_PROGRESS_BAR: LazyLock<Mutex<Option<ProgressBar>>> = LazyLock::new(|| Mutex::new(None));
 
@@ -72,6 +72,13 @@ pub fn enable_eta() {
 pub fn disable_eta() {
     match *CURRENT_PROGRESS_BAR.lock().unwrap() {
         Some(ref mut progress_bar) => progress_bar.disable_eta(),
+        None => eprintln!("ERROR: Unable to set progress bar max (no progress bar)"),
+    }
+}
+
+pub fn set_progress_style(style: ProgressStyle) {
+    match *CURRENT_PROGRESS_BAR.lock().unwrap() {
+        Some(ref mut progress_bar) => progress_bar.set_progress_style(style),
         None => eprintln!("ERROR: Unable to set progress bar max (no progress bar)"),
     }
 }

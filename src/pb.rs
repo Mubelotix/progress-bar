@@ -10,6 +10,7 @@ pub struct ProgressBar {
     action: String,
     action_color: Color,
     action_style: Style,
+    progress_style: ProgressStyle,
     action_width: usize,
     start: Option<Instant>,
 }
@@ -55,6 +56,7 @@ impl ProgressBar {
             action: String::new(),
             action_color: Color::Black,
             action_style: Style::Normal,
+            progress_style: ProgressStyle::Number,
             action_width: 12,
             start: None,
         }
@@ -92,6 +94,12 @@ impl ProgressBar {
     /// Set the width of the action in characters in the console (default: 12)
     pub fn set_action_width(&mut self, w: usize) {
         self.action_width = w;
+        self.display();
+    }
+
+    /// Set the style of the progress indicator to the right of the progress bar (default: [ProgressStyle::Number])
+    pub fn set_progress_style(&mut self, style: ProgressStyle) {
+        self.progress_style = style;
         self.display();
     }
 
@@ -170,7 +178,14 @@ impl ProgressBar {
                 print!(" ");
             }
         }
-        print!("] {}/{}", self.progress, self.max);
+
+        print!("] ");
+        match self.progress_style {
+            ProgressStyle::Number => print!("{}/{}", self.progress, self.max),
+            ProgressStyle::Percentage => print!("{}%", (self.progress as f64 / self.max as f64 * 100.0) as usize),
+            ProgressStyle::Empty => (),
+        }
+
         if let Some(start) = self.start {
             if self.max != 0 && self.progress != 0 && self.progress != self.max {
                 let elapsed = start.elapsed();

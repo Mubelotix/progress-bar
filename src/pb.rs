@@ -182,7 +182,9 @@ impl ProgressBar {
         print!("] ");
         match self.progress_style {
             ProgressStyle::Number => print!("{}/{}", self.progress, self.max),
-            ProgressStyle::Percentage => print!("{}%", (self.progress as f64 / self.max as f64 * 100.0) as usize),
+            ProgressStyle::Percentage => if self.max != 0 {
+                    print!("{}%", (self.progress as f64 / self.max as f64 * 100.0) as usize);
+            }
             ProgressStyle::Empty => (),
         }
 

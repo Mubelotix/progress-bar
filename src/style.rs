@@ -72,3 +72,12 @@ impl fmt::Display for Style {
         }
     }
 }
+
+pub enum ProgressStyle {
+    /// A number that shows how many actions have been finished and how many actions there are. Example: 23/57
+    Number,
+    /// A percentage of the completed work is shown. Example: 32%
+    Percentage,
+    /// No indication of progression is shown next to the progress bar.
+    Empty
+}

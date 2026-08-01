@@ -45,6 +45,7 @@ impl fmt::Display for Color {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum Style {
     Normal, 
     Bold,
@@ -73,6 +74,7 @@ impl fmt::Display for Style {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum ProgressStyle {
     /// A number that shows how many actions have been finished and how many actions there are. Example: 23/57
     Number,

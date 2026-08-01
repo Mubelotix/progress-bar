@@ -20,6 +20,7 @@ fn main() {
     // if you have 81 pages to load
     init_progress_bar_with_eta(0.2, 81);
     set_progress_bar_action("Loading", Color::Blue, Style::Bold);
+    set_eta_style(Color::Green, Style::Dim);
     
     for i in 0..81 {
         // load page

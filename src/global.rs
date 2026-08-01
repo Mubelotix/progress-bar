@@ -80,6 +80,20 @@ pub fn disable_eta() {
     }
 }
 
+pub fn set_eta_style(color: Color, style: Style) {
+    match *CURRENT_PROGRESS_BAR.lock().unwrap() {
+        Some(ref mut progress_bar) => progress_bar.set_eta_style(color, style),
+        None => eprintln!("ERROR: Unable to set ETA style (no progress bar)"),
+    }
+}
+
+pub fn reset_eta_style() {
+    match *CURRENT_PROGRESS_BAR.lock().unwrap() {
+        Some(ref mut progress_bar) => progress_bar.reset_eta_style(),
+        None => eprintln!("ERROR: Unable to reset ETA style (no progress bar)"),
+    }
+}
+
 pub fn set_progress_style(style: ProgressStyle) {
     match *CURRENT_PROGRESS_BAR.lock().unwrap() {
         Some(ref mut progress_bar) => progress_bar.set_progress_style(style),

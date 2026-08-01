@@ -8,6 +8,8 @@ pub struct EtaData {
     last_progress: usize,
     last_time: Instant,
     speed: f64,
+    color: Option<Color>,
+    style: Option<Style>,
 }
 
 pub struct ProgressBar {
@@ -80,6 +82,8 @@ impl ProgressBar {
                 last_progress: 0,
                 last_time: Instant::now(),
                 speed: 0.0,
+                color: None,
+                style: None,
             }),
             ..ProgressBar::new(max)
         }
@@ -163,7 +167,7 @@ impl ProgressBar {
         self.set_progress(self.progress + 1);
     }
 
-    /// **Resets progress** and enables ETA
+    /// **Resets progress** and enables ETA (resets its style too).
     pub fn enable_eta(&mut self, smoothing_factor: f64) {
         self.progress = 0;
         self.eta = Some(EtaData {
@@ -171,12 +175,30 @@ impl ProgressBar {
             last_progress: 0,
             last_time: Instant::now(),
             speed: 0.0,
+            color: None,
+            style: None,
         });
     }
 
     /// Disables ETA
     pub fn disable_eta(&mut self) {
         self.eta = None;
+    }
+
+    /// Sets the ETA style
+    pub fn set_eta_style(&mut self, color: Color, style: Style) {
+        if let Some(eta) = &mut self.eta {
+            eta.color = Some(color);
+            eta.style = Some(style);
+        }
+    }
+
+    /// Resets ETA style
+    pub fn reset_eta_style(&mut self) {
+        if let Some(eta) = &mut self.eta {
+            eta.color = None;
+            eta.style = None;
+        }
     }
 
     /// Set the global action displayed before the progress bar.
@@ -238,7 +260,7 @@ impl ProgressBar {
 
             #[allow(overlapping_range_endpoints)]
             #[allow(clippy::match_overlapping_arm)]
-            let eta = match remaining_ms {
+            let eta_str = match remaining_ms {
                 0..=3_000 => format!("{}ms", remaining_ms),
                 3_001..=SECS_110 => format!("{}s", remaining_time.ceil() as usize),
                 SECS_110..=MINS_110 => format!("{} minutes", (remaining_time / 60.).ceil() as usize),
@@ -246,7 +268,14 @@ impl ProgressBar {
                 _ => format!("{} days", (remaining_time / 86400.).ceil() as usize),
             };
 
-            print!(" (ETA {eta})");
+            let color_code = eta.color.map(|c| c.to_string()).unwrap_or_default();
+            let style_code = eta.style.map(|s| s.to_string()).unwrap_or_default();
+
+            if eta.color.is_some() || eta.style.is_some() {
+                print!(" {color_code}{style_code}(ETA {eta_str})\x1B[0m");
+            } else {
+                print!(" (ETA {eta_str})");
+            }
         }
         print!("\n\x1B[1A");
 

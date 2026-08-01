@@ -141,7 +141,7 @@ impl ProgressBar {
                 let delta_time = now.duration_since(eta.last_time).as_secs_f64();
 
                 // Only update EMA if a meaningful time window has elapsed
-                if delta_time >= 1.0 {
+                if delta_time >= eta.update_period.as_secs_f64() {
                     let delta_progress = (p - eta.last_progress) as f64;
                     let instant_speed = delta_progress / delta_time;
                     if eta.speed == 0.0 {

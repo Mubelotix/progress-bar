@@ -1,7 +1,7 @@
 use crate::style::*;
 use std::io;
 use std::io::Write;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub struct EtaData {
     smoothing_factor: f64,
@@ -10,6 +10,7 @@ pub struct EtaData {
     speed: f64,
     color: Option<Color>,
     style: Option<Style>,
+    update_period: Duration,
 }
 
 pub struct ProgressBar {
@@ -84,6 +85,7 @@ impl ProgressBar {
                 speed: 0.0,
                 color: None,
                 style: None,
+                update_period: Duration::from_secs(1),
             }),
             ..ProgressBar::new(max)
         }
@@ -177,6 +179,7 @@ impl ProgressBar {
             speed: 0.0,
             color: None,
             style: None,
+            update_period: Duration::from_secs(1),
         });
     }
 
@@ -198,6 +201,15 @@ impl ProgressBar {
         if let Some(eta) = &mut self.eta {
             eta.color = None;
             eta.style = None;
+        }
+    }
+
+    /// Sets the update period for ETA calculations.
+    /// This controls how frequently the speed is estimated, but ETA number will still be updated on every display.
+    /// Default is 1 second.
+    pub fn set_eta_update_period(&mut self, period: Duration) {
+        if let Some(eta) = &mut self.eta {
+            eta.update_period = period;
         }
     }
 

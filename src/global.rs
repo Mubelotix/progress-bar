@@ -94,6 +94,13 @@ pub fn reset_eta_style() {
     }
 }
 
+pub fn set_eta_update_period(period: std::time::Duration) {
+    match *CURRENT_PROGRESS_BAR.lock().unwrap() {
+        Some(ref mut progress_bar) => progress_bar.set_eta_update_period(period),
+        None => eprintln!("ERROR: Unable to set ETA update period (no progress bar)"),
+    }
+}
+
 pub fn set_progress_style(style: ProgressStyle) {
     match *CURRENT_PROGRESS_BAR.lock().unwrap() {
         Some(ref mut progress_bar) => progress_bar.set_progress_style(style),

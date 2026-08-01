@@ -5,7 +5,7 @@ use std::thread;
 
 #[test]
 fn test() {
-    let mut test = ProgressBar::new_with_eta(100);
+    let mut test = ProgressBar::new_with_eta(0.2, 100);
     test.set_action("Loading", Color::Blue, Style::Bold);
     
     for i in 0..100 {

@@ -18,12 +18,16 @@ fn main() {
     warn!("Failed to load https://zefzef.zef");
 
     // if you have 81 pages to load
-    init_progress_bar_with_eta(81);
+    init_progress_bar_with_eta(0.2, 81);
     set_progress_bar_action("Loading", Color::Blue, Style::Bold);
     
     for i in 0..81 {
         // load page
-        sleep(Duration::from_millis(100));
+        if i > 40 {
+            sleep(Duration::from_millis(200));
+        } else {
+            sleep(Duration::from_millis(100));
+        }
     
         // log the result
         if i == 14 {

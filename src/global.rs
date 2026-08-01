@@ -16,8 +16,12 @@ pub fn init_progress_bar(max: usize) {
     set_progress_bar(progress_bar);
 }
 
-pub fn init_progress_bar_with_eta(max: usize) {
-    let progress_bar = ProgressBar::new_with_eta(max);
+/// Uses [ProgressBar::new_with_eta] to initialize a progress bar.
+/// 
+/// Smoothing factor: A value between `0.1` and `0.3` works well.
+/// Higher value makes the estimate react faster to recent changes; lower makes it less jumpy.
+pub fn init_progress_bar_with_eta(smoothing_factor: f64, max: usize) {
+    let progress_bar = ProgressBar::new_with_eta(smoothing_factor, max);
     set_progress_bar(progress_bar);
 }
 
@@ -62,9 +66,9 @@ pub fn set_progress_bar_max(max: usize) {
 }
 
 /// Warning: This resets progress to 0
-pub fn enable_eta() {
+pub fn enable_eta(smoothing_factor: f64) {
     match *CURRENT_PROGRESS_BAR.lock().unwrap() {
-        Some(ref mut progress_bar) => progress_bar.enable_eta(),
+        Some(ref mut progress_bar) => progress_bar.enable_eta(smoothing_factor),
         None => eprintln!("ERROR: Unable to enable ETA (no progress bar)"),
     }
 }

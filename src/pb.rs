@@ -3,6 +3,13 @@ use std::io;
 use std::io::Write;
 use std::time::Instant;
 
+pub struct EtaData {
+    smoothing_factor: f64,
+    last_progress: usize,
+    last_time: Instant,
+    speed: f64,
+}
+
 pub struct ProgressBar {
     max: usize,
     progress: usize,
@@ -12,7 +19,7 @@ pub struct ProgressBar {
     action_style: Style,
     progress_style: ProgressStyle,
     action_width: usize,
-    start: Option<Instant>,
+    eta: Option<EtaData>,
 }
 
 impl ProgressBar {
@@ -58,14 +65,22 @@ impl ProgressBar {
             action_style: Style::Normal,
             progress_style: ProgressStyle::Number,
             action_width: 12,
-            start: None,
+            eta: None,
         }
     }
 
     /// Same as [ProgressBar::new] but enabled ETA display.
-    pub fn new_with_eta(max: usize) -> Self {
+    /// 
+    /// Smoothing factor: A value between `0.1` and `0.3` works well.
+    /// Higher value makes the estimate react faster to recent changes; lower makes it less jumpy.
+    pub fn new_with_eta(smoothing_factor: f64, max: usize) -> Self {
         ProgressBar {
-            start: Some(Instant::now()),
+            eta: Some(EtaData {
+                smoothing_factor,
+                last_progress: 0,
+                last_time: Instant::now(),
+                speed: 0.0,
+            }),
             ..ProgressBar::new(max)
         }
     }
@@ -110,10 +125,28 @@ impl ProgressBar {
 
     /// Set the progres
     pub fn set_progress(&mut self, p: usize) {
-        self.progress = p;
-        if p == 0 && self.start.is_some() {
-            self.start = Some(Instant::now());
+        if let Some(eta) = &mut self.eta {
+            if p < self.progress {
+                eta.last_progress = p;
+                eta.last_time = Instant::now();
+                eta.speed = 0.0;
+            } else if self.progress < p {
+                let now = Instant::now();
+                let delta_progress = (p - eta.last_progress) as f64;
+                let delta_time = now.duration_since(eta.last_time).as_secs_f64();
+                if delta_time > 0.0 {
+                    let instant_speed = delta_progress / delta_time;
+                    if eta.speed == 0.0 {
+                        eta.speed = instant_speed;
+                    } else {
+                        eta.speed = eta.smoothing_factor * instant_speed + (1.0 - eta.smoothing_factor) * eta.speed;
+                    }
+                    eta.last_progress = p;
+                    eta.last_time = now;
+                }
+            }
         }
+        self.progress = p;
         self.display();
     }
 
@@ -125,19 +158,23 @@ impl ProgressBar {
 
     /// Increment the progress by 1
     pub fn inc(&mut self) {
-        self.progress += 1;
-        self.display();
+        self.set_progress(self.progress + 1);
     }
 
     /// **Resets progress** and enables ETA
-    pub fn enable_eta(&mut self) {
+    pub fn enable_eta(&mut self, smoothing_factor: f64) {
         self.progress = 0;
-        self.start = Some(Instant::now());
+        self.eta = Some(EtaData {
+            smoothing_factor,
+            last_progress: 0,
+            last_time: Instant::now(),
+            speed: 0.0,
+        });
     }
 
     /// Disables ETA
     pub fn disable_eta(&mut self) {
-        self.start = None;
+        self.eta = None;
     }
 
     /// Set the global action displayed before the progress bar.
@@ -188,31 +225,26 @@ impl ProgressBar {
             ProgressStyle::Empty => (),
         }
 
-        if let Some(start) = self.start {
-            if self.max != 0 && self.progress != 0 && self.progress != self.max {
-                let elapsed = start.elapsed();
-                let progress_rate = self.progress as f64 / self.max as f64;
-                let inv_progress_rate = 1. - progress_rate;
-                let total_time = elapsed.as_millis() as f64 / progress_rate;
-                let remaining_time = total_time * inv_progress_rate;
-                let remaining_ms = remaining_time.ceil() as usize;
+        if let Some(eta) = &self.eta && self.max != 0 && eta.speed != 0.0 && self.progress != self.max {
+            let remaining_progress = self.max.saturating_sub(self.progress) as f64;
+            let remaining_time = remaining_progress / eta.speed;
+            let remaining_ms = (remaining_time * 1000.0) as usize;
 
-                const SECS_110: usize = 110 * 1000;
-                const MINS_110: usize = 110 * 60 * 1000;
-                const HOURS_46: usize = 46 * 60 * 60 * 1000;
+            const SECS_110: usize = 110 * 1000;
+            const MINS_110: usize = 110 * 60 * 1000;
+            const HOURS_46: usize = 46 * 60 * 60 * 1000;
 
-                #[allow(overlapping_range_endpoints)]
-                #[allow(clippy::match_overlapping_arm)]
-                let eta = match remaining_ms {
-                    0..=3_000 => format!("{}ms", remaining_time.ceil() as usize),
-                    3_001..=SECS_110 => format!("{}s", (remaining_time / 1000.).ceil() as usize),
-                    SECS_110..=MINS_110 => format!("{} minutes", (remaining_time / (1000. * 60.)).ceil() as usize),
-                    MINS_110..=HOURS_46 => format!("{} hours", (remaining_time / (1000. * 60. * 60.)).ceil() as usize),
-                    _ => format!("{} days", (remaining_time / (1000. * 60. * 60. * 24.)).ceil() as usize),
-                };
+            #[allow(overlapping_range_endpoints)]
+            #[allow(clippy::match_overlapping_arm)]
+            let eta = match remaining_ms {
+                0..=3_000 => format!("{}ms", remaining_ms),
+                3_001..=SECS_110 => format!("{}s", remaining_time.ceil() as usize),
+                SECS_110..=MINS_110 => format!("{} minutes", (remaining_time / 60.).ceil() as usize),
+                MINS_110..=HOURS_46 => format!("{} hours", (remaining_time / 3600.).ceil() as usize),
+                _ => format!("{} days", (remaining_time / 86400.).ceil() as usize),
+            };
 
-                print!(" (ETA {eta})");
-            }
+            print!(" (ETA {eta})");
         }
         print!("\n\x1B[1A");
 
@@ -223,6 +255,7 @@ impl ProgressBar {
     /// Mark the end of the progress bar - updates will make a 'new' bar
     pub fn finalize(&mut self) {
         self.progress = 0;
+        self.eta = None;
         println!();
     }
 }

@@ -5,7 +5,7 @@ fn test() {
     use std::time::Duration;
 
     // if you have 81 pages to load
-    init_progress_bar_with_eta(81);
+    init_progress_bar_with_eta(0.2, 81);
     set_progress_bar_action("Loading", Color::Blue, Style::Bold);
     
     for i in 0..81 {

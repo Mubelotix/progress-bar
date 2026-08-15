@@ -1,6 +1,6 @@
 [package]
 name = "progress_bar"
-version = "1.5.1"
+version = "1.5.2"
 authors = ["Mubelotix <mubelotix@gmail.com>"]
 edition = "2024"
 license = "MIT"

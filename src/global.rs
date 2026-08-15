@@ -25,6 +25,14 @@ pub fn init_progress_bar_with_eta(smoothing_factor: f64, max: usize) {
     set_progress_bar(progress_bar);
 }
 
+pub fn get_progress_bar_progress() -> Option<usize> {
+    (*CURRENT_PROGRESS_BAR.lock().unwrap()).as_ref().map(|progress_bar| progress_bar.progress())
+}
+
+pub fn get_progress_bar_max() -> Option<usize> {
+    (*CURRENT_PROGRESS_BAR.lock().unwrap()).as_ref().map(|progress_bar| progress_bar.max())
+}
+
 #[deprecated(note = "Use set_progress_bar_progress instead")]
 pub fn set_progress_bar_progression(progress: usize) {
     set_progress_bar_progress(progress);

@@ -91,6 +91,14 @@ impl ProgressBar {
         }
     }
 
+    pub fn progress(&self) -> usize {
+        self.progress
+    }
+
+    pub fn max(&self) -> usize {
+        self.max
+    }
+
     fn set_good_size(&self, text: &str) -> String {
         let text_len = text.len();
         if text_len == self.action_width {

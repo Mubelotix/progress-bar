@@ -1,8 +1,7 @@
 use crate::style::*;
 use std::ffi::OsStr;
-use std::fmt;
-use std::io;
-use std::io::Write;
+use std::fmt::{self, Write};
+use std::io::{self, Write as _};
 use std::time::{Duration, Instant};
 
 pub struct EtaData {
@@ -15,11 +14,25 @@ pub struct EtaData {
     update_period: Duration,
 }
 
+impl EtaData {
+    fn new(smoothing_factor: f64) -> Self {
+        EtaData {
+            smoothing_factor,
+            last_progress: 0,
+            last_time: Instant::now(),
+            speed: 0.0,
+            color: None,
+            style: None,
+            update_period: Duration::from_secs(1),
+        }
+    }
+}
+
 pub struct ProgressBar {
     max: usize,
     progress: usize,
     width: usize,
-    action: String,
+    action: Option<String>,
     action_color: Color,
     action_style: Style,
     progress_style: ProgressStyle,
@@ -41,6 +54,31 @@ impl<T: fmt::Display> fmt::Display for Sgr<T> {
             Ok(())
         }
     }
+}
+
+/// Writes to stdout, so that rendering doesn't need intermediate `String`s.
+struct Stdout;
+
+impl Write for Stdout {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        io::stdout().write_all(s.as_bytes()).map_err(|_| fmt::Error)
+    }
+}
+
+/// Rounds a non-negative float up, saturating at `usize::MAX`.
+// `f64::ceil` isn't available in `core`, this will allow dropping `std`.
+fn ceil_usize(x: f64) -> usize {
+    let truncated = x as usize;
+    if (truncated as f64) < x {
+        truncated.saturating_add(1)
+    } else {
+        truncated
+    }
+}
+
+/// Right-aligns `text`, padded or truncated to exactly `width` characters.
+fn write_sized(out: &mut impl Write, text: &str, width: usize) -> fmt::Result {
+    write!(out, "{text:>width$.width$}")
 }
 
 impl ProgressBar {
@@ -82,7 +120,7 @@ impl ProgressBar {
             max,
             progress: 0,
             width: 50,
-            action: String::new(),
+            action: None,
             action_color: Color::Black,
             action_style: Style::Normal,
             progress_style: ProgressStyle::Number,
@@ -98,15 +136,7 @@ impl ProgressBar {
     /// Higher value makes the estimate react faster to recent changes; lower makes it less jumpy.
     pub fn new_with_eta(smoothing_factor: f64, max: usize) -> Self {
         ProgressBar {
-            eta: Some(EtaData {
-                smoothing_factor,
-                last_progress: 0,
-                last_time: Instant::now(),
-                speed: 0.0,
-                color: None,
-                style: None,
-                update_period: Duration::from_secs(1),
-            }),
+            eta: Some(EtaData::new(smoothing_factor)),
             ..ProgressBar::new(max)
         }
     }
@@ -117,11 +147,6 @@ impl ProgressBar {
 
     pub fn max(&self) -> usize {
         self.max
-    }
-
-    /// Right-aligns `text`, padded or truncated to exactly `action_width` characters.
-    fn set_good_size(&self, text: &str) -> String {
-        format!("{text:>width$.width$}", width = self.action_width)
     }
 
     /// Set the width of the progress bar in characters in console (default: 50)
@@ -190,15 +215,7 @@ impl ProgressBar {
     /// **Resets progress** and enables ETA (resets its style too).
     pub fn enable_eta(&mut self, smoothing_factor: f64) {
         self.progress = 0;
-        self.eta = Some(EtaData {
-            smoothing_factor,
-            last_progress: 0,
-            last_time: Instant::now(),
-            speed: 0.0,
-            color: None,
-            style: None,
-            update_period: Duration::from_secs(1),
-        });
+        self.eta = Some(EtaData::new(smoothing_factor));
     }
 
     /// Disables ETA
@@ -246,16 +263,24 @@ impl ProgressBar {
 
     /// Set the global action displayed before the progress bar.
     pub fn set_action(&mut self, a: &str, c: Color, s: Style) {
-        self.action = self.set_good_size(a);
+        self.action = Some(a.to_string());
         self.action_color = c;
         self.action_style = s;
         self.display();
     }
 
+    fn write_info(&self, info_name: &str, text: impl fmt::Display, info_color: Color, info_style: Style) {
+        let out = &mut Stdout;
+        let _ = (|| {
+            write!(out, "{}{}", self.sgr(info_style), self.sgr(info_color))?;
+            write_sized(out, info_name, self.action_width)?;
+            writeln!(out, "{} {text}\x1B[K", self.sgr(RESET))
+        })();
+    }
+
     /// Log something, without display update
-    pub fn print_final_info(&mut self, info_name: &str, text: &str, info_color: Color, info_style: Style) {
-        let info_name = self.set_good_size(info_name);
-        println!("{}{}{}{} {}\x1B[K", self.sgr(info_style), self.sgr(info_color), info_name, self.sgr(RESET), text);
+    pub fn print_final_info(&mut self, info_name: &str, text: impl fmt::Display, info_color: Color, info_style: Style) {
+        self.write_info(info_name, text, info_color, info_style);
         self.progress = 0;
         if let Some(eta) = &mut self.eta {
             eta.last_progress = 0;
@@ -265,34 +290,42 @@ impl ProgressBar {
     }
 
     /// Log something
-    pub fn print_info(&mut self, info_name: &str, text: &str, info_color: Color, info_style: Style) {
-        let info_name = self.set_good_size(info_name);
-        println!("{}{}{}{} {}\x1B[K", self.sgr(info_style), self.sgr(info_color), info_name, self.sgr(RESET), text);
+    pub fn print_info(&mut self, info_name: &str, text: impl fmt::Display, info_color: Color, info_style: Style) {
+        self.write_info(info_name, text, info_color, info_style);
         self.display();
     }
 
     /// Display the bar
     pub fn display(&self) {
-        print!("{}{}{}{}\x1B[K", self.sgr(self.action_style), self.sgr(self.action_color), self.action, self.sgr(RESET));
+        let _ = self.render(&mut Stdout);
+        let _ = io::stdout().flush();
+    }
 
-        print!(" [");
+    fn render(&self, out: &mut impl Write) -> fmt::Result {
+        write!(out, "{}{}", self.sgr(self.action_style), self.sgr(self.action_color))?;
+        if let Some(action) = &self.action {
+            write_sized(out, action, self.action_width)?;
+        }
+        write!(out, "{}\x1B[K", self.sgr(RESET))?;
+
+        out.write_str(" [")?;
         for i in 0..self.width {
             if i*self.max/self.width < self.progress {
                 if (i+1)*self.max/self.width >= self.progress {
-                    print!(">");
+                    out.write_char('>')?;
                 } else {
-                    print!("=");
+                    out.write_char('=')?;
                 }
             } else {
-                print!(" ");
+                out.write_char(' ')?;
             }
         }
 
-        print!("] ");
+        out.write_str("] ")?;
         match self.progress_style {
-            ProgressStyle::Number => print!("{}/{}", self.progress, self.max),
+            ProgressStyle::Number => write!(out, "{}/{}", self.progress, self.max)?,
             ProgressStyle::Percentage => if self.max != 0 {
-                    print!("{}%", (self.progress as f64 / self.max as f64 * 100.0) as usize);
+                write!(out, "{}%", (self.progress as f64 / self.max as f64 * 100.0) as usize)?;
             }
             ProgressStyle::Empty => (),
         }
@@ -306,29 +339,32 @@ impl ProgressBar {
             const MINS_110: usize = 110 * 60 * 1000;
             const HOURS_46: usize = 46 * 60 * 60 * 1000;
 
+            let styled = self.colors && (eta.color.is_some() || eta.style.is_some());
+            out.write_char(' ')?;
+            if styled {
+                if let Some(style) = eta.style {
+                    write!(out, "{style}")?;
+                }
+                if let Some(color) = eta.color {
+                    write!(out, "{color}")?;
+                }
+            }
+
             #[allow(overlapping_range_endpoints)]
             #[allow(clippy::match_overlapping_arm)]
-            let eta_str = match remaining_ms {
-                0..=3_000 => format!("{}ms", remaining_ms),
-                3_001..=SECS_110 => format!("{}s", remaining_time.ceil() as usize),
-                SECS_110..=MINS_110 => format!("{} minutes", (remaining_time / 60.).ceil() as usize),
-                MINS_110..=HOURS_46 => format!("{} hours", (remaining_time / 3600.).ceil() as usize),
-                _ => format!("{} days", (remaining_time / 86400.).ceil() as usize),
-            };
+            match remaining_ms {
+                0..=3_000 => write!(out, "(ETA {}ms)", remaining_ms)?,
+                3_001..=SECS_110 => write!(out, "(ETA {}s)", ceil_usize(remaining_time))?,
+                SECS_110..=MINS_110 => write!(out, "(ETA {} minutes)", ceil_usize(remaining_time / 60.))?,
+                MINS_110..=HOURS_46 => write!(out, "(ETA {} hours)", ceil_usize(remaining_time / 3600.))?,
+                _ => write!(out, "(ETA {} days)", ceil_usize(remaining_time / 86400.))?,
+            }
 
-            let color_code = eta.color.map(|c| c.to_string()).unwrap_or_default();
-            let style_code = eta.style.map(|s| s.to_string()).unwrap_or_default();
-
-            if self.colors && (eta.color.is_some() || eta.style.is_some()) {
-                print!(" {style_code}{color_code}(ETA {eta_str})\x1B[0m");
-            } else {
-                print!(" (ETA {eta_str})");
+            if styled {
+                out.write_str(RESET)?;
             }
         }
-        print!("\n\x1B[1A");
-
-        #[allow(unused_must_use)]
-        { io::stdout().flush(); }
+        out.write_str("\n\x1B[1A")
     }
     
     /// Mark the end of the progress bar - updates will make a 'new' bar
@@ -344,14 +380,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn good_size_counts_characters() {
-        let progress_bar = ProgressBar::new(1);
-        assert_eq!(progress_bar.set_good_size("Loading"), "     Loading");
-        assert_eq!(progress_bar.set_good_size("Exactly12chr"), "Exactly12chr");
-        assert_eq!(progress_bar.set_good_size("A very long action"), "A very long ");
-        // used to panic: byte 12 is inside 'é'
-        assert_eq!(progress_bar.set_good_size("Écriture télémétrie"), "Écriture tél");
-        assert_eq!(progress_bar.set_good_size("Échec"), "       Échec");
+    fn ceil() {
+        assert_eq!(ceil_usize(0.0), 0);
+        assert_eq!(ceil_usize(1.0), 1);
+        assert_eq!(ceil_usize(1.2), 2);
+        assert_eq!(ceil_usize(f64::INFINITY), usize::MAX);
+    }
+
+    #[test]
+    fn sized_text() {
+        let mut out = String::new();
+        write_sized(&mut out, "Loading", 12).unwrap();
+        write_sized(&mut out, "A very long action", 12).unwrap();
+        write_sized(&mut out, "Exactly12chr", 12).unwrap();
+        write_sized(&mut out, "Échec", 3).unwrap();
+        write_sized(&mut out, "Écriture télémétrie", 12).unwrap();
+        assert_eq!(out, "     LoadingA very long Exactly12chrÉchÉcriture tél");
     }
 
     #[test]

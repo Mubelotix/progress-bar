@@ -1,5 +1,7 @@
 # progress_bar
 
+![animated demo of a progress bar with an ETA and logs printed above it](https://raw.githubusercontent.com/Mubelotix/progress-bar/refs/heads/master/media/demo.gif "Demo")
+
 A simple and elegant crate for displaying progress bars in the terminal.
 It can estimate and display the remaining time, and includes logging utilities that integrate cleanly with your progress bar output.
 
@@ -45,8 +47,6 @@ for i in 0..81 {
 
 finalize_progress_bar();
 ```
-
-![image displaying the output of the code above](https://raw.githubusercontent.com/Mubelotix/cli_progress_bar/refs/heads/master/media/progress_bar_example1.png "Output")
 
 ### Logging with the progress bar
 

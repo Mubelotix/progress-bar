@@ -1,4 +1,6 @@
 use crate::style::*;
+use std::ffi::OsStr;
+use std::fmt;
 use std::io;
 use std::io::Write;
 use std::time::{Duration, Instant};
@@ -23,12 +25,36 @@ pub struct ProgressBar {
     progress_style: ProgressStyle,
     action_width: usize,
     eta: Option<EtaData>,
+    colors: bool,
+}
+
+const RESET: &str = "\x1B[0m";
+
+/// An SGR escape code (color or style), displayed only when colors are enabled.
+struct Sgr<T>(T, bool);
+
+impl<T: fmt::Display> fmt::Display for Sgr<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.1 {
+            self.0.fmt(f)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Whether colors should be enabled given the value of the `NO_COLOR` environment variable.
+///
+/// See <https://no-color.org/>: colors are disabled when `NO_COLOR` is present and not empty.
+fn colors_enabled(no_color: Option<&OsStr>) -> bool {
+    no_color.is_none_or(OsStr::is_empty)
 }
 
 impl ProgressBar {
     /// Creates a progress bar with the total number of actions.  
     /// You will need to call inc method when an action is completed and the bar progress will be incremented by 1.  
     /// Don't print things with print macro while the bar is running; use the print_info method instead.  
+    /// Colors and styles are disabled when the `NO_COLOR` environment variable is set (see [ProgressBar::set_colors]).  
     /// 
     /// # Example
     /// 
@@ -69,6 +95,7 @@ impl ProgressBar {
             progress_style: ProgressStyle::Number,
             action_width: 12,
             eta: None,
+            colors: colors_enabled(std::env::var_os("NO_COLOR").as_deref()),
         }
     }
 
@@ -211,6 +238,19 @@ impl ProgressBar {
         }
     }
 
+    /// Enables or disables colors and styles.
+    ///
+    /// By default, they are enabled unless the [`NO_COLOR`](https://no-color.org/) environment variable is set
+    /// to a non-empty value. Use this to apply a user preference (like a `--color` flag) that takes precedence.
+    pub fn set_colors(&mut self, enabled: bool) {
+        self.colors = enabled;
+        self.display();
+    }
+
+    fn sgr<T: fmt::Display>(&self, code: T) -> Sgr<T> {
+        Sgr(code, self.colors)
+    }
+
     /// Set the global action displayed before the progress bar.
     pub fn set_action(&mut self, a: &str, c: Color, s: Style) {
         self.action = self.set_good_size(a);
@@ -222,7 +262,7 @@ impl ProgressBar {
     /// Log something, without display update
     pub fn print_final_info(&mut self, info_name: &str, text: &str, info_color: Color, info_style: Style) {
         let info_name = self.set_good_size(info_name);
-        println!("{}{}{}\x1B[0m {}\x1B[K", info_style, info_color, info_name, text);
+        println!("{}{}{}{} {}\x1B[K", self.sgr(info_style), self.sgr(info_color), info_name, self.sgr(RESET), text);
         self.progress = 0;
         if let Some(eta) = &mut self.eta {
             eta.last_progress = 0;
@@ -234,13 +274,13 @@ impl ProgressBar {
     /// Log something
     pub fn print_info(&mut self, info_name: &str, text: &str, info_color: Color, info_style: Style) {
         let info_name = self.set_good_size(info_name);
-        println!("{}{}{}\x1B[0m {}\x1B[K", info_style, info_color, info_name, text);
+        println!("{}{}{}{} {}\x1B[K", self.sgr(info_style), self.sgr(info_color), info_name, self.sgr(RESET), text);
         self.display();
     }
 
     /// Display the bar
     pub fn display(&self) {
-        print!("{}{}{}\x1B[0m\x1B[K", self.action_style, self.action_color, self.action);
+        print!("{}{}{}{}\x1B[K", self.sgr(self.action_style), self.sgr(self.action_color), self.action, self.sgr(RESET));
 
         print!(" [");
         for i in 0..self.width {
@@ -286,7 +326,7 @@ impl ProgressBar {
             let color_code = eta.color.map(|c| c.to_string()).unwrap_or_default();
             let style_code = eta.style.map(|s| s.to_string()).unwrap_or_default();
 
-            if eta.color.is_some() || eta.style.is_some() {
+            if self.colors && (eta.color.is_some() || eta.style.is_some()) {
                 print!(" {style_code}{color_code}(ETA {eta_str})\x1B[0m");
             } else {
                 print!(" (ETA {eta_str})");
@@ -331,5 +371,16 @@ mod tests {
         std::thread::sleep(Duration::from_millis(2));
         // used to underflow: the ETA still remembered progress 50
         progress_bar.set_progress(10);
+    }
+
+    #[test]
+    fn no_color() {
+        assert!(colors_enabled(None));
+        assert!(colors_enabled(Some(OsStr::new(""))));
+        assert!(!colors_enabled(Some(OsStr::new("1"))));
+        assert!(!colors_enabled(Some(OsStr::new("false"))));
+
+        assert_eq!(Sgr(Color::Red, true).to_string(), "\x1B[31m");
+        assert_eq!(Sgr(Color::Red, false).to_string(), "");
     }
 }

@@ -287,7 +287,7 @@ impl ProgressBar {
             let style_code = eta.style.map(|s| s.to_string()).unwrap_or_default();
 
             if eta.color.is_some() || eta.style.is_some() {
-                print!(" {color_code}{style_code}(ETA {eta_str})\x1B[0m");
+                print!(" {style_code}{color_code}(ETA {eta_str})\x1B[0m");
             } else {
                 print!(" (ETA {eta_str})");
             }

@@ -224,6 +224,11 @@ impl ProgressBar {
         let info_name = self.set_good_size(info_name);
         println!("{}{}{}\x1B[0m {}\x1B[K", info_style, info_color, info_name, text);
         self.progress = 0;
+        if let Some(eta) = &mut self.eta {
+            eta.last_progress = 0;
+            eta.last_time = Instant::now();
+            eta.speed = 0.0;
+        }
     }
 
     /// Log something
@@ -314,5 +319,17 @@ mod tests {
         // used to panic: byte 12 is inside 'é'
         assert_eq!(progress_bar.set_good_size("Écriture télémétrie"), "Écriture tél");
         assert_eq!(progress_bar.set_good_size("Échec"), "       Échec");
+    }
+
+    #[test]
+    fn eta_after_final_info() {
+        let mut progress_bar = ProgressBar::new_with_eta(0.2, 100);
+        progress_bar.set_eta_update_period(Duration::from_millis(1));
+        std::thread::sleep(Duration::from_millis(2));
+        progress_bar.set_progress(50);
+        progress_bar.print_final_info("Done", "first batch", Color::Green, Style::Bold);
+        std::thread::sleep(Duration::from_millis(2));
+        // used to underflow: the ETA still remembered progress 50
+        progress_bar.set_progress(10);
     }
 }

@@ -99,19 +99,9 @@ impl ProgressBar {
         self.max
     }
 
+    /// Right-aligns `text`, padded or truncated to exactly `action_width` characters.
     fn set_good_size(&self, text: &str) -> String {
-        let text_len = text.len();
-        if text_len == self.action_width {
-            text.to_string()
-        } else if text_len > self.action_width {
-            text[..self.action_width].to_string()
-        } else {
-            let mut text = text.to_string();
-            while text.len() < self.action_width {
-                text.insert(0, ' ');
-            }
-            text
-        }
+        format!("{text:>width$.width$}", width = self.action_width)
     }
 
     /// Set the width of the progress bar in characters in console (default: 50)
@@ -234,6 +224,11 @@ impl ProgressBar {
         let info_name = self.set_good_size(info_name);
         println!("{}{}{}\x1B[0m {}\x1B[K", info_style, info_color, info_name, text);
         self.progress = 0;
+        if let Some(eta) = &mut self.eta {
+            eta.last_progress = 0;
+            eta.last_time = Instant::now();
+            eta.speed = 0.0;
+        }
     }
 
     /// Log something
@@ -292,7 +287,7 @@ impl ProgressBar {
             let style_code = eta.style.map(|s| s.to_string()).unwrap_or_default();
 
             if eta.color.is_some() || eta.style.is_some() {
-                print!(" {color_code}{style_code}(ETA {eta_str})\x1B[0m");
+                print!(" {style_code}{color_code}(ETA {eta_str})\x1B[0m");
             } else {
                 print!(" (ETA {eta_str})");
             }
@@ -308,5 +303,33 @@ impl ProgressBar {
         self.progress = 0;
         self.eta = None;
         println!();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn good_size_counts_characters() {
+        let progress_bar = ProgressBar::new(1);
+        assert_eq!(progress_bar.set_good_size("Loading"), "     Loading");
+        assert_eq!(progress_bar.set_good_size("Exactly12chr"), "Exactly12chr");
+        assert_eq!(progress_bar.set_good_size("A very long action"), "A very long ");
+        // used to panic: byte 12 is inside 'é'
+        assert_eq!(progress_bar.set_good_size("Écriture télémétrie"), "Écriture tél");
+        assert_eq!(progress_bar.set_good_size("Échec"), "       Échec");
+    }
+
+    #[test]
+    fn eta_after_final_info() {
+        let mut progress_bar = ProgressBar::new_with_eta(0.2, 100);
+        progress_bar.set_eta_update_period(Duration::from_millis(1));
+        std::thread::sleep(Duration::from_millis(2));
+        progress_bar.set_progress(50);
+        progress_bar.print_final_info("Done", "first batch", Color::Green, Style::Bold);
+        std::thread::sleep(Duration::from_millis(2));
+        // used to underflow: the ETA still remembered progress 50
+        progress_bar.set_progress(10);
     }
 }

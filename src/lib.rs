@@ -3,6 +3,7 @@
 pub mod pb;
 pub mod style;
 pub mod clock;
+mod eta;
 pub mod global;
 
 #[cfg(feature = "logger")]

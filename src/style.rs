@@ -83,3 +83,30 @@ pub enum ProgressStyle {
     /// No indication of progression is shown next to the progress bar.
     Empty
 }
+
+/// Resets all colors and styles.
+pub(crate) const RESET: &str = "\x1B[0m";
+
+/// An SGR escape code (color or style), displayed only when colors are enabled.
+pub(crate) struct Sgr<T>(pub(crate) T, pub(crate) bool);
+
+impl<T: fmt::Display> fmt::Display for Sgr<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.1 {
+            self.0.fmt(f)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sgr() {
+        assert_eq!(Sgr(Color::Red, true).to_string(), "\x1B[31m");
+        assert_eq!(Sgr(Color::Red, false).to_string(), "");
+    }
+}

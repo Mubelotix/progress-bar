@@ -1,33 +1,10 @@
 use crate::clock::{Clock, StdClock};
+pub use crate::eta::EtaData;
 use crate::style::*;
 use std::ffi::OsStr;
 use std::fmt::{self, Write};
 use std::io::{self, Write as _};
 use std::time::Duration;
-
-pub struct EtaData {
-    smoothing_factor: f64,
-    last_progress: usize,
-    last_time: Duration,
-    speed: f64,
-    color: Option<Color>,
-    style: Option<Style>,
-    update_period: Duration,
-}
-
-impl EtaData {
-    fn new(smoothing_factor: f64, now: Duration) -> Self {
-        EtaData {
-            smoothing_factor,
-            last_progress: 0,
-            last_time: now,
-            speed: 0.0,
-            color: None,
-            style: None,
-            update_period: Duration::from_secs(1),
-        }
-    }
-}
 
 /// A terminal progress bar.
 ///
@@ -47,38 +24,12 @@ pub struct ProgressBar<C = StdClock> {
     clock: C,
 }
 
-const RESET: &str = "\x1B[0m";
-
-/// An SGR escape code (color or style), displayed only when colors are enabled.
-struct Sgr<T>(T, bool);
-
-impl<T: fmt::Display> fmt::Display for Sgr<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.1 {
-            self.0.fmt(f)
-        } else {
-            Ok(())
-        }
-    }
-}
-
 /// Writes to stdout, so that rendering doesn't need intermediate `String`s.
 struct Stdout;
 
 impl Write for Stdout {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         io::stdout().write_all(s.as_bytes()).map_err(|_| fmt::Error)
-    }
-}
-
-/// Rounds a non-negative float up, saturating at `usize::MAX`.
-// `f64::ceil` isn't available in `core`, this will allow dropping `std`.
-fn ceil_usize(x: f64) -> usize {
-    let truncated = x as usize;
-    if (truncated as f64) < x {
-        truncated.saturating_add(1)
-    } else {
-        truncated
     }
 }
 
@@ -203,26 +154,9 @@ impl<C: Clock> ProgressBar<C> {
     pub fn set_progress(&mut self, p: usize) {
         if let Some(eta) = &mut self.eta {
             if p < self.progress {
-                eta.last_progress = p;
-                eta.last_time = self.clock.now();
-                eta.speed = 0.0;
+                eta.reset(p, self.clock.now());
             } else if self.progress < p {
-                let now = self.clock.now();
-                let delta_time = now.saturating_sub(eta.last_time).as_secs_f64();
-
-                // Only update EMA if a meaningful time window has elapsed
-                // (and some time elapsed at all, a coarse clock could otherwise give an infinite speed)
-                if delta_time >= eta.update_period.as_secs_f64() && delta_time > 0.0 {
-                    let delta_progress = (p - eta.last_progress) as f64;
-                    let instant_speed = delta_progress / delta_time;
-                    if eta.speed == 0.0 {
-                        eta.speed = instant_speed;
-                    } else {
-                        eta.speed = eta.smoothing_factor * instant_speed + (1.0 - eta.smoothing_factor) * eta.speed;
-                    }
-                    eta.last_progress = p;
-                    eta.last_time = now;
-                }
+                eta.update(p, self.clock.now());
             }
         }
         self.progress = p;
@@ -311,9 +245,7 @@ impl<C: Clock> ProgressBar<C> {
         self.write_info(info_name, text, info_color, info_style);
         self.progress = 0;
         if let Some(eta) = &mut self.eta {
-            eta.last_progress = 0;
-            eta.last_time = self.clock.now();
-            eta.speed = 0.0;
+            eta.reset(0, self.clock.now());
         }
     }
 
@@ -358,15 +290,7 @@ impl<C: Clock> ProgressBar<C> {
             ProgressStyle::Empty => (),
         }
 
-        if let Some(eta) = &self.eta && self.max != 0 && eta.speed != 0.0 && self.progress != self.max {
-            let remaining_progress = self.max.saturating_sub(self.progress) as f64;
-            let remaining_time = remaining_progress / eta.speed;
-            let remaining_ms = (remaining_time * 1000.0) as usize;
-
-            const SECS_110: usize = 110 * 1000;
-            const MINS_110: usize = 110 * 60 * 1000;
-            const HOURS_46: usize = 46 * 60 * 60 * 1000;
-
+        if let Some(eta) = &self.eta && let Some(remaining) = eta.remaining(self.progress, self.max) {
             let styled = self.colors && (eta.color.is_some() || eta.style.is_some());
             out.write_char(' ')?;
             if styled {
@@ -378,15 +302,7 @@ impl<C: Clock> ProgressBar<C> {
                 }
             }
 
-            #[allow(overlapping_range_endpoints)]
-            #[allow(clippy::match_overlapping_arm)]
-            match remaining_ms {
-                0..=3_000 => write!(out, "(ETA {}ms)", remaining_ms)?,
-                3_001..=SECS_110 => write!(out, "(ETA {}s)", ceil_usize(remaining_time))?,
-                SECS_110..=MINS_110 => write!(out, "(ETA {} minutes)", ceil_usize(remaining_time / 60.))?,
-                MINS_110..=HOURS_46 => write!(out, "(ETA {} hours)", ceil_usize(remaining_time / 3600.))?,
-                _ => write!(out, "(ETA {} days)", ceil_usize(remaining_time / 86400.))?,
-            }
+            write!(out, "(ETA {remaining})")?;
 
             if styled {
                 out.write_str(RESET)?;
@@ -406,14 +322,6 @@ impl<C: Clock> ProgressBar<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn ceil() {
-        assert_eq!(ceil_usize(0.0), 0);
-        assert_eq!(ceil_usize(1.0), 1);
-        assert_eq!(ceil_usize(1.2), 2);
-        assert_eq!(ceil_usize(f64::INFINITY), usize::MAX);
-    }
 
     #[test]
     fn sized_text() {
@@ -460,9 +368,4 @@ mod tests {
         assert!(out.ends_with("20/100 (ETA 16s)\n\x1B[1A"), "{out:?}");
     }
 
-    #[test]
-    fn no_color() {
-        assert_eq!(Sgr(Color::Red, true).to_string(), "\x1B[31m");
-        assert_eq!(Sgr(Color::Red, false).to_string(), "");
-    }
 }

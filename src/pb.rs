@@ -1,13 +1,14 @@
+use crate::clock::{Clock, StdClock};
 use crate::style::*;
 use std::ffi::OsStr;
 use std::fmt::{self, Write};
 use std::io::{self, Write as _};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub struct EtaData {
     smoothing_factor: f64,
     last_progress: usize,
-    last_time: Instant,
+    last_time: Duration,
     speed: f64,
     color: Option<Color>,
     style: Option<Style>,
@@ -15,11 +16,11 @@ pub struct EtaData {
 }
 
 impl EtaData {
-    fn new(smoothing_factor: f64) -> Self {
+    fn new(smoothing_factor: f64, now: Duration) -> Self {
         EtaData {
             smoothing_factor,
             last_progress: 0,
-            last_time: Instant::now(),
+            last_time: now,
             speed: 0.0,
             color: None,
             style: None,
@@ -28,7 +29,11 @@ impl EtaData {
     }
 }
 
-pub struct ProgressBar {
+/// A terminal progress bar.
+///
+/// It uses a [`Clock`] for ETA estimation: [`StdClock`] by default, or any clock given to
+/// [`ProgressBar::with_clock`].
+pub struct ProgressBar<C = StdClock> {
     max: usize,
     progress: usize,
     width: usize,
@@ -39,6 +44,7 @@ pub struct ProgressBar {
     action_width: usize,
     eta: Option<EtaData>,
     colors: bool,
+    clock: C,
 }
 
 const RESET: &str = "\x1B[0m";
@@ -116,6 +122,37 @@ impl ProgressBar {
     /// // progress_bar.finalize();
     /// ```
     pub fn new(max: usize) -> Self {
+        ProgressBar::with_clock(max, StdClock::default())
+    }
+
+    /// Same as [ProgressBar::new] but enabled ETA display.
+    /// 
+    /// Smoothing factor: A value between `0.1` and `0.3` works well.
+    /// Higher value makes the estimate react faster to recent changes; lower makes it less jumpy.
+    pub fn new_with_eta(smoothing_factor: f64, max: usize) -> Self {
+        let mut progress_bar = ProgressBar::new(max);
+        progress_bar.enable_eta(smoothing_factor);
+        progress_bar
+    }
+}
+
+impl<C: Clock> ProgressBar<C> {
+    /// Creates a progress bar using `clock` instead of the system clock for ETA estimation,
+    /// e.g. to make the ETA deterministic in tests.
+    ///
+    /// Any `Fn() -> Duration` is a clock:
+    ///
+    /// ```
+    /// use progress_bar::pb::ProgressBar;
+    /// use std::{cell::Cell, time::Duration};
+    ///
+    /// let time = Cell::new(Duration::ZERO);
+    /// let mut progress_bar = ProgressBar::with_clock(100, || time.get());
+    /// progress_bar.enable_eta(0.2);
+    /// time.set(Duration::from_secs(2));
+    /// progress_bar.set_progress(10); // ETA 18s
+    /// ```
+    pub fn with_clock(max: usize, clock: C) -> Self {
         ProgressBar {
             max,
             progress: 0,
@@ -127,17 +164,7 @@ impl ProgressBar {
             action_width: 12,
             eta: None,
             colors: std::env::var_os("NO_COLOR").as_deref().is_none_or(OsStr::is_empty),
-        }
-    }
-
-    /// Same as [ProgressBar::new] but enabled ETA display.
-    /// 
-    /// Smoothing factor: A value between `0.1` and `0.3` works well.
-    /// Higher value makes the estimate react faster to recent changes; lower makes it less jumpy.
-    pub fn new_with_eta(smoothing_factor: f64, max: usize) -> Self {
-        ProgressBar {
-            eta: Some(EtaData::new(smoothing_factor)),
-            ..ProgressBar::new(max)
+            clock,
         }
     }
 
@@ -177,14 +204,15 @@ impl ProgressBar {
         if let Some(eta) = &mut self.eta {
             if p < self.progress {
                 eta.last_progress = p;
-                eta.last_time = Instant::now();
+                eta.last_time = self.clock.now();
                 eta.speed = 0.0;
             } else if self.progress < p {
-                let now = Instant::now();
-                let delta_time = now.duration_since(eta.last_time).as_secs_f64();
+                let now = self.clock.now();
+                let delta_time = now.saturating_sub(eta.last_time).as_secs_f64();
 
                 // Only update EMA if a meaningful time window has elapsed
-                if delta_time >= eta.update_period.as_secs_f64() {
+                // (and some time elapsed at all, a coarse clock could otherwise give an infinite speed)
+                if delta_time >= eta.update_period.as_secs_f64() && delta_time > 0.0 {
                     let delta_progress = (p - eta.last_progress) as f64;
                     let instant_speed = delta_progress / delta_time;
                     if eta.speed == 0.0 {
@@ -215,7 +243,7 @@ impl ProgressBar {
     /// **Resets progress** and enables ETA (resets its style too).
     pub fn enable_eta(&mut self, smoothing_factor: f64) {
         self.progress = 0;
-        self.eta = Some(EtaData::new(smoothing_factor));
+        self.eta = Some(EtaData::new(smoothing_factor, self.clock.now()));
     }
 
     /// Disables ETA
@@ -284,7 +312,7 @@ impl ProgressBar {
         self.progress = 0;
         if let Some(eta) = &mut self.eta {
             eta.last_progress = 0;
-            eta.last_time = Instant::now();
+            eta.last_time = self.clock.now();
             eta.speed = 0.0;
         }
     }
@@ -400,14 +428,36 @@ mod tests {
 
     #[test]
     fn eta_after_final_info() {
-        let mut progress_bar = ProgressBar::new_with_eta(0.2, 100);
-        progress_bar.set_eta_update_period(Duration::from_millis(1));
-        std::thread::sleep(Duration::from_millis(2));
+        use std::cell::Cell;
+        let time = Cell::new(Duration::ZERO);
+        let mut progress_bar = ProgressBar::with_clock(100, || time.get());
+        progress_bar.enable_eta(0.2);
+        time.set(Duration::from_secs(2));
         progress_bar.set_progress(50);
         progress_bar.print_final_info("Done", "first batch", Color::Green, Style::Bold);
-        std::thread::sleep(Duration::from_millis(2));
+        time.set(Duration::from_secs(4));
         // used to underflow: the ETA still remembered progress 50
         progress_bar.set_progress(10);
+    }
+
+    #[test]
+    fn eta_with_custom_clock() {
+        use std::cell::Cell;
+        let time = Cell::new(Duration::ZERO);
+        let mut progress_bar = ProgressBar::with_clock(100, || time.get());
+        progress_bar.set_colors(false);
+        progress_bar.enable_eta(0.2);
+        time.set(Duration::from_secs(2));
+        progress_bar.set_progress(10); // 5 items/s, 90 remaining
+        let mut out = String::new();
+        progress_bar.render(&mut out).unwrap();
+        assert!(out.ends_with("10/100 (ETA 18s)\n\x1B[1A"), "{out:?}");
+
+        // a clock that didn't advance doesn't produce an infinite speed
+        progress_bar.set_progress(20);
+        let mut out = String::new();
+        progress_bar.render(&mut out).unwrap();
+        assert!(out.ends_with("20/100 (ETA 16s)\n\x1B[1A"), "{out:?}");
     }
 
     #[test]

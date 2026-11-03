@@ -1,46 +1,54 @@
-use crate::clock::{Clock, StdClock};
+use crate::clock::Clock;
 pub use crate::eta::EtaData;
+use crate::output::Output;
 use crate::style::*;
-use std::ffi::OsStr;
-use std::fmt::{self, Write};
-use std::io::{self, Write as _};
-use std::time::Duration;
+use core::cell::RefCell;
+use core::fmt::{self, Write};
+use core::time::Duration;
 
-/// A terminal progress bar.
-///
-/// It uses a [`Clock`] for ETA estimation: [`StdClock`] by default, or any clock given to
-/// [`ProgressBar::with_clock`].
-pub struct ProgressBar<C = StdClock> {
-    max: usize,
-    progress: usize,
-    width: usize,
-    action: Option<String>,
-    action_color: Color,
-    action_style: Style,
-    progress_style: ProgressStyle,
-    action_width: usize,
-    eta: Option<EtaData>,
-    colors: bool,
-    clock: C,
+#[cfg(feature = "std")]
+use crate::{clock::StdClock, output::Stdout};
+
+macro_rules! define_progress_bar {
+    ($($generics:tt)*) => {
+        /// A terminal progress bar.
+        ///
+        /// It renders to an [`Output`] (stdout by default) and uses a [`Clock`] for ETA estimation.
+        /// Use [`ProgressBar::with_output`] to render somewhere else, e.g. a UART on `no_std` targets.
+        ///
+        /// The action text is stored as an `A`, so the caller decides how it is allocated: a [`String`]
+        /// by default with `std`, or e.g. a `&'static str` or a `heapless::String` without allocator.
+        pub struct ProgressBar<$($generics)*> {
+            max: usize,
+            progress: usize,
+            width: usize,
+            action: Option<A>,
+            action_color: Color,
+            action_style: Style,
+            progress_style: ProgressStyle,
+            action_width: usize,
+            eta: Option<EtaData>,
+            colors: bool,
+            output: RefCell<W>,
+            clock: C,
+        }
+    };
 }
 
-/// Writes to stdout, so that rendering doesn't need intermediate `String`s.
+/// Colors are enabled by default, unless disabled by the `NO_COLOR` environment variable.
 ///
-/// It goes through `print!` rather than `io::stdout()`, so that `cargo test` captures the output.
-struct Stdout;
-
-impl Write for Stdout {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        print!("{s}");
-        Ok(())
-    }
-
-    // A single `print!` takes the stdout lock once, so a line can't be interleaved with other threads' output.
-    fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> fmt::Result {
-        print!("{args}");
-        Ok(())
-    }
+/// See <https://no-color.org/>: colors are disabled when `NO_COLOR` is present and not empty.
+fn default_colors() -> bool {
+    #[cfg(feature = "std")]
+    return std::env::var_os("NO_COLOR").as_deref().is_none_or(std::ffi::OsStr::is_empty);
+    #[cfg(not(feature = "std"))]
+    return true;
 }
+
+#[cfg(feature = "std")]
+define_progress_bar!(W = Stdout, C = StdClock, A = String);
+#[cfg(not(feature = "std"))]
+define_progress_bar!(W, C, A);
 
 /// Displays through a closure, so a whole line reaches the output as a single `write_fmt` call.
 struct DisplayFn<F: Fn(&mut fmt::Formatter<'_>) -> fmt::Result>(F);
@@ -56,6 +64,7 @@ fn write_sized(out: &mut impl Write, text: &str, width: usize) -> fmt::Result {
     write!(out, "{text:>width$.width$}")
 }
 
+#[cfg(feature = "std")]
 impl ProgressBar {
     /// Creates a progress bar with the total number of actions.  
     /// You will need to call inc method when an action is completed and the bar progress will be incremented by 1.  
@@ -91,7 +100,7 @@ impl ProgressBar {
     /// // progress_bar.finalize();
     /// ```
     pub fn new(max: usize) -> Self {
-        ProgressBar::with_clock(max, StdClock::default())
+        ProgressBar::with_output(max, Stdout, StdClock::default())
     }
 
     /// Same as [ProgressBar::new] but enabled ETA display.
@@ -105,7 +114,8 @@ impl ProgressBar {
     }
 }
 
-impl<C: Clock> ProgressBar<C> {
+#[cfg(feature = "std")]
+impl<C: Clock> ProgressBar<Stdout, C> {
     /// Creates a progress bar using `clock` instead of the system clock for ETA estimation,
     /// e.g. to make the ETA deterministic in tests.
     ///
@@ -122,6 +132,28 @@ impl<C: Clock> ProgressBar<C> {
     /// progress_bar.set_progress(10); // ETA 18s
     /// ```
     pub fn with_clock(max: usize, clock: C) -> Self {
+        ProgressBar::with_output(max, Stdout, clock)
+    }
+}
+
+impl<W: Output, C: Clock, A: AsRef<str>> ProgressBar<W, C, A> {
+    /// Creates a progress bar rendering to `output` and using `clock` for ETA estimation.
+    ///
+    /// This is the constructor to use on `no_std` targets.
+    /// Pass [`NoClock`](crate::NoClock) if you don't need ETA.
+    ///
+    /// The type of the action text, `A`, usually has to be given explicitly:
+    /// it is the type in which [`set_action`](ProgressBar::set_action) stores its argument.
+    ///
+    /// ```
+    /// use progress_bar::{pb::ProgressBar, Color, NoClock, Style};
+    ///
+    /// let mut progress_bar = ProgressBar::<_, _, &'static str>::with_output(10, String::new(), NoClock);
+    /// progress_bar.set_action("Loading", Color::Blue, Style::Bold);
+    /// progress_bar.inc();
+    /// assert!(progress_bar.into_output().contains("1/10"));
+    /// ```
+    pub fn with_output(max: usize, output: W, clock: C) -> Self {
         ProgressBar {
             max,
             progress: 0,
@@ -132,9 +164,15 @@ impl<C: Clock> ProgressBar<C> {
             progress_style: ProgressStyle::Number,
             action_width: 12,
             eta: None,
-            colors: std::env::var_os("NO_COLOR").as_deref().is_none_or(OsStr::is_empty),
+            colors: default_colors(),
+            output: RefCell::new(output),
             clock,
         }
+    }
+
+    /// Consumes the progress bar and returns its output.
+    pub fn into_output(self) -> W {
+        self.output.into_inner()
     }
 
     pub fn progress(&self) -> usize {
@@ -231,7 +269,8 @@ impl<C: Clock> ProgressBar<C> {
     /// Enables or disables colors and styles.
     ///
     /// By default, they are enabled unless the [`NO_COLOR`](https://no-color.org/) environment variable is set
-    /// to a non-empty value. Use this to apply a user preference (like a `--color` flag) that takes precedence.
+    /// to a non-empty value (checked with the `std` feature only).
+    /// Use this to apply a user preference (like a `--color` flag) that takes precedence.
     pub fn set_colors(&mut self, enabled: bool) {
         self.colors = enabled;
         self.display();
@@ -242,8 +281,11 @@ impl<C: Clock> ProgressBar<C> {
     }
 
     /// Set the global action displayed before the progress bar.
-    pub fn set_action(&mut self, a: &str, c: Color, s: Style) {
-        self.action = Some(a.to_string());
+    ///
+    /// The action is stored as an `A` (a [`String`] with [`ProgressBar::new`]), and padded or truncated
+    /// to the action width when the bar is drawn.
+    pub fn set_action(&mut self, a: impl Into<A>, c: Color, s: Style) {
+        self.action = Some(a.into());
         self.action_color = c;
         self.action_style = s;
         self.display();
@@ -255,12 +297,13 @@ impl<C: Clock> ProgressBar<C> {
             write_sized(f, info_name, self.action_width)?;
             writeln!(f, "{} {text}\x1B[K", self.sgr(RESET))
         });
-        let _ = write!(Stdout, "{line}");
+        let _ = write!(self.output.borrow_mut(), "{line}");
     }
 
     /// Log something, without display update
     pub fn print_final_info(&mut self, info_name: &str, text: impl fmt::Display, info_color: Color, info_style: Style) {
         self.write_info(info_name, text, info_color, info_style);
+        self.output.get_mut().flush();
         self.progress = 0;
         if let Some(eta) = &mut self.eta {
             eta.reset(0, self.clock.now());
@@ -275,14 +318,15 @@ impl<C: Clock> ProgressBar<C> {
 
     /// Display the bar
     pub fn display(&self) {
-        let _ = write!(Stdout, "{}", DisplayFn(|f| self.render(f)));
-        let _ = io::stdout().flush();
+        let out = &mut *self.output.borrow_mut();
+        let _ = write!(out, "{}", DisplayFn(|f| self.render(f)));
+        out.flush();
     }
 
     fn render(&self, out: &mut impl Write) -> fmt::Result {
         write!(out, "{}{}", self.sgr(self.action_style), self.sgr(self.action_color))?;
         if let Some(action) = &self.action {
-            write_sized(out, action, self.action_width)?;
+            write_sized(out, action.as_ref(), self.action_width)?;
         }
         write!(out, "{}\x1B[K", self.sgr(RESET))?;
 
@@ -333,13 +377,16 @@ impl<C: Clock> ProgressBar<C> {
     pub fn finalize(&mut self) {
         self.progress = 0;
         self.eta = None;
-        println!();
+        let out = self.output.get_mut();
+        let _ = out.write_char('\n');
+        out.flush();
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
+    use crate::NoClock;
 
     #[test]
     fn sized_text() {
@@ -354,7 +401,7 @@ mod tests {
 
     #[test]
     fn eta_after_final_info() {
-        use std::cell::Cell;
+        use core::cell::Cell;
         let time = Cell::new(Duration::ZERO);
         let mut progress_bar = ProgressBar::with_clock(100, || time.get());
         progress_bar.enable_eta(0.2);
@@ -367,23 +414,41 @@ mod tests {
     }
 
     #[test]
-    fn eta_with_custom_clock() {
-        use std::cell::Cell;
-        let time = Cell::new(Duration::ZERO);
-        let mut progress_bar = ProgressBar::with_clock(100, || time.get());
-        progress_bar.set_colors(false);
-        progress_bar.enable_eta(0.2);
-        time.set(Duration::from_secs(2));
-        progress_bar.set_progress(10); // 5 items/s, 90 remaining
-        let mut out = String::new();
-        progress_bar.render(&mut out).unwrap();
-        assert!(out.ends_with("10/100 (ETA 18s)\n\x1B[1A"), "{out:?}");
-
-        // a clock that didn't advance doesn't produce an infinite speed
-        progress_bar.set_progress(20);
-        let mut out = String::new();
-        progress_bar.render(&mut out).unwrap();
-        assert!(out.ends_with("20/100 (ETA 16s)\n\x1B[1A"), "{out:?}");
+    fn colors_disabled() {
+        let mut pb = ProgressBar::<_, _, &str>::with_output(4, String::new(), NoClock);
+        pb.set_colors(false);
+        pb.set_width(4);
+        pb.set_action("Loading", Color::Blue, Style::Bold);
+        pb.print_info("Hi", "there", Color::Red, Style::Normal);
+        let out = pb.into_output();
+        assert!(out.ends_with("          Hi there\x1B[K\n     Loading\x1B[K [    ] 0/4\n\x1B[1A"));
     }
 
+    #[test]
+    fn action_is_padded_and_truncated() {
+        let mut pb: ProgressBar<_, _> = ProgressBar::with_output(4, String::new(), NoClock);
+        pb.set_width(4);
+        pb.set_action("A very long action", Color::Blue, Style::Bold);
+        pb.inc();
+        pb.set_colors(true);
+        pb.print_info("Hi", "there", Color::Red, Style::Normal);
+        let out = pb.into_output();
+        assert!(out.contains("A very long \x1B[0m\x1B[K [>   ] 1/4"));
+        assert!(out.contains("          Hi\x1B[0m there\x1B[K\n"));
+    }
+
+    #[test]
+    fn eta_with_custom_clock() {
+        use core::cell::Cell;
+        let time = Cell::new(Duration::ZERO);
+        let mut pb = ProgressBar::<_, _, &str>::with_output(100, String::new(), || time.get());
+        pb.enable_eta(0.2);
+        time.set(Duration::from_secs(2));
+        pb.set_progress(10); // 5 items/s, 90 remaining
+        assert!(pb.output.borrow().ends_with("10/100 (ETA 18s)\n\x1B[1A"));
+
+        // a clock that didn't advance doesn't produce an infinite speed
+        pb.set_progress(20);
+        assert!(pb.into_output().ends_with("20/100 (ETA 16s)\n\x1B[1A"));
+    }
 }

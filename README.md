@@ -3,7 +3,7 @@
 A simple and elegant crate for displaying progress bars in the terminal.
 It can estimate and display the remaining time, and includes logging utilities that integrate cleanly with your progress bar output.
 
-⚠️ Note: This crate currently supports Unix-based systems only.
+⚠️ Note: This crate currently supports Unix-based systems only. It can also run on `no_std` targets, see [`no_std` / embedded usage](#no_std--embedded-usage).
 
 ## Features
 
@@ -13,6 +13,7 @@ It can estimate and display the remaining time, and includes logging utilities t
 - Estimate and display remaining time
 - Integrate seamlessly with Rust’s `log` crate
 - Respect the [`NO_COLOR`](https://no-color.org/) environment variable
+- `no_std` and allocation-free, for embedded targets
 
 ## Example
 
@@ -103,5 +104,59 @@ warn!("Failed to load https://zefzef.zef");
 <!-- 
 TODO: Show the fallback logger
 -->
+
+### `no_std` / embedded usage
+
+The crate is `no_std` compatible and doesn't need an allocator: disable the default `std` feature.
+
+```toml
+progress_bar = { version = "*", default-features = false }
+```
+
+Without `std`, the global progress bar and the logger are unavailable: create a `ProgressBar` with
+`ProgressBar::with_output`, giving it anything implementing `core::fmt::Write` (a UART, an RTT channel...) and a clock.
+Any `Fn() -> Duration` is a clock, so you can plug your hardware timer in. Use `NoClock` if you don't need ETA.
+
+The bar keeps the action text as given to `set_action`, in a type you choose: `&'static str` for literals,
+a `heapless::String`, or `alloc::string::String` if you have an allocator.
+
+```rust
+use core::{fmt, time::Duration};
+use progress_bar::{pb::ProgressBar, Color, Output, Style};
+
+struct Uart;
+
+impl fmt::Write for Uart {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        // send `s` over the wire
+        Ok(())
+    }
+}
+
+impl Output for Uart {
+    // optional: flush the TX buffer once the bar has been drawn
+    fn flush(&mut self) {}
+}
+
+fn uptime() -> Duration {
+    // read your hardware timer here
+    Duration::ZERO
+}
+
+let mut progress_bar = ProgressBar::<_, _, &'static str>::with_output(64, Uart, uptime as fn() -> Duration);
+progress_bar.enable_eta(0.2);
+progress_bar.set_action("Flashing", Color::Blue, Style::Bold);
+
+for sector in 0..64 {
+    // write sector
+    if sector == 14 {
+        // `print_info` accepts anything implementing `Display`, no allocation needed
+        progress_bar.print_info("Retry", format_args!("sector {sector}"), Color::Yellow, Style::Normal);
+    }
+    progress_bar.inc();
+}
+
+progress_bar.finalize();
+```
 
 License: MIT

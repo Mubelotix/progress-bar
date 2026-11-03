@@ -7,7 +7,7 @@ license = "MIT"
 description = "A simple and elegant crate for displaying progress bars in the terminal. It can estimate and display the remaining time, and includes logging utilities that integrate cleanly with your progress bar output."
 readme = "README.md"
 repository = "https://github.com/Mubelotix/progress-bar"
-categories = ["command-line-interface"]
+categories = ["command-line-interface", "no-std", "embedded"]
 
 [dependencies]
 log = { version = "0.4", optional = true }
@@ -16,5 +16,13 @@ log = { version = "0.4", optional = true }
 env_logger = "0.11"
 
 [features]
-default = []
-logger = ["log"]
+default = ["std"]
+std = []
+logger = ["std", "log"]
+
+[[example]]
+name = "logger"
+required-features = ["logger"]
+
+[package.metadata.docs.rs]
+all-features = true

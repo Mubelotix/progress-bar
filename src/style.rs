@@ -1,6 +1,6 @@
 //! A module containing style and color enums.
 
-use std::fmt;
+use core::fmt;
 
 #[derive(Debug, Copy, Clone)]
 pub enum Color {
@@ -100,7 +100,7 @@ impl<T: fmt::Display> fmt::Display for Sgr<T> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
 

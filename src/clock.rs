@@ -41,17 +41,20 @@ impl Clock for NoClock {
 }
 
 /// A clock based on [`std::time::Instant`]. This is the default clock.
+#[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy)]
 pub struct StdClock {
     origin: std::time::Instant,
 }
 
+#[cfg(feature = "std")]
 impl Default for StdClock {
     fn default() -> Self {
         StdClock { origin: std::time::Instant::now() }
     }
 }
 
+#[cfg(feature = "std")]
 impl Clock for StdClock {
     fn now(&self) -> Duration {
         self.origin.elapsed()

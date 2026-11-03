@@ -86,11 +86,11 @@ impl log::Log for ProgressBarLogger {
             }
             inner => match CURRENT_PROGRESS_BAR.lock().as_deref_mut() {
                 Ok(Some(progress_bar)) => match record.level() {
-                    Level::Error => progress_bar.print_info("Error", &record.args().to_string(), Color::Red, Style::Bold),
-                    Level::Warn => progress_bar.print_info("Warn", &record.args().to_string(), Color::Yellow, Style::Bold),
-                    Level::Info => progress_bar.print_info("Info", &record.args().to_string(), Color::LightGreen, Style::Bold),
-                    Level::Debug => progress_bar.print_info("Debug", &record.args().to_string(), Color::Blue, Style::Normal),
-                    Level::Trace => progress_bar.print_info("Trace", &record.args().to_string(), Color::LightGray, Style::Normal),
+                    Level::Error => progress_bar.print_info("Error", record.args(), Color::Red, Style::Bold),
+                    Level::Warn => progress_bar.print_info("Warn", record.args(), Color::Yellow, Style::Bold),
+                    Level::Info => progress_bar.print_info("Info", record.args(), Color::LightGreen, Style::Bold),
+                    Level::Debug => progress_bar.print_info("Debug", record.args(), Color::Blue, Style::Normal),
+                    Level::Trace => progress_bar.print_info("Trace", record.args(), Color::LightGray, Style::Normal),
                 },
                 Ok(None) | Err(_) => match inner {
                     InnerLogger::Main(_) => unreachable!(),

@@ -1,46 +1,41 @@
+use crate::clock::{Clock, StdClock};
+pub use crate::eta::EtaData;
 use crate::style::*;
 use std::ffi::OsStr;
-use std::fmt;
-use std::io;
-use std::io::Write;
-use std::time::{Duration, Instant};
+use std::fmt::{self, Write};
+use std::io::{self, Write as _};
+use std::time::Duration;
 
-pub struct EtaData {
-    smoothing_factor: f64,
-    last_progress: usize,
-    last_time: Instant,
-    speed: f64,
-    color: Option<Color>,
-    style: Option<Style>,
-    update_period: Duration,
-}
-
-pub struct ProgressBar {
+/// A terminal progress bar.
+///
+/// It uses a [`Clock`] for ETA estimation: [`StdClock`] by default, or any clock given to
+/// [`ProgressBar::with_clock`].
+pub struct ProgressBar<C = StdClock> {
     max: usize,
     progress: usize,
     width: usize,
-    action: String,
+    action: Option<String>,
     action_color: Color,
     action_style: Style,
     progress_style: ProgressStyle,
     action_width: usize,
     eta: Option<EtaData>,
     colors: bool,
+    clock: C,
 }
 
-const RESET: &str = "\x1B[0m";
+/// Writes to stdout, so that rendering doesn't need intermediate `String`s.
+struct Stdout;
 
-/// An SGR escape code (color or style), displayed only when colors are enabled.
-struct Sgr<T>(T, bool);
-
-impl<T: fmt::Display> fmt::Display for Sgr<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.1 {
-            self.0.fmt(f)
-        } else {
-            Ok(())
-        }
+impl Write for Stdout {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        io::stdout().write_all(s.as_bytes()).map_err(|_| fmt::Error)
     }
+}
+
+/// Right-aligns `text`, padded or truncated to exactly `width` characters.
+fn write_sized(out: &mut impl Write, text: &str, width: usize) -> fmt::Result {
+    write!(out, "{text:>width$.width$}")
 }
 
 impl ProgressBar {
@@ -78,18 +73,7 @@ impl ProgressBar {
     /// // progress_bar.finalize();
     /// ```
     pub fn new(max: usize) -> Self {
-        ProgressBar {
-            max,
-            progress: 0,
-            width: 50,
-            action: String::new(),
-            action_color: Color::Black,
-            action_style: Style::Normal,
-            progress_style: ProgressStyle::Number,
-            action_width: 12,
-            eta: None,
-            colors: std::env::var_os("NO_COLOR").as_deref().is_none_or(OsStr::is_empty),
-        }
+        ProgressBar::with_clock(max, StdClock::default())
     }
 
     /// Same as [ProgressBar::new] but enabled ETA display.
@@ -97,17 +81,41 @@ impl ProgressBar {
     /// Smoothing factor: A value between `0.1` and `0.3` works well.
     /// Higher value makes the estimate react faster to recent changes; lower makes it less jumpy.
     pub fn new_with_eta(smoothing_factor: f64, max: usize) -> Self {
+        let mut progress_bar = ProgressBar::new(max);
+        progress_bar.enable_eta(smoothing_factor);
+        progress_bar
+    }
+}
+
+impl<C: Clock> ProgressBar<C> {
+    /// Creates a progress bar using `clock` instead of the system clock for ETA estimation,
+    /// e.g. to make the ETA deterministic in tests.
+    ///
+    /// Any `Fn() -> Duration` is a clock:
+    ///
+    /// ```
+    /// use progress_bar::pb::ProgressBar;
+    /// use std::{cell::Cell, time::Duration};
+    ///
+    /// let time = Cell::new(Duration::ZERO);
+    /// let mut progress_bar = ProgressBar::with_clock(100, || time.get());
+    /// progress_bar.enable_eta(0.2);
+    /// time.set(Duration::from_secs(2));
+    /// progress_bar.set_progress(10); // ETA 18s
+    /// ```
+    pub fn with_clock(max: usize, clock: C) -> Self {
         ProgressBar {
-            eta: Some(EtaData {
-                smoothing_factor,
-                last_progress: 0,
-                last_time: Instant::now(),
-                speed: 0.0,
-                color: None,
-                style: None,
-                update_period: Duration::from_secs(1),
-            }),
-            ..ProgressBar::new(max)
+            max,
+            progress: 0,
+            width: 50,
+            action: None,
+            action_color: Color::Black,
+            action_style: Style::Normal,
+            progress_style: ProgressStyle::Number,
+            action_width: 12,
+            eta: None,
+            colors: std::env::var_os("NO_COLOR").as_deref().is_none_or(OsStr::is_empty),
+            clock,
         }
     }
 
@@ -117,11 +125,6 @@ impl ProgressBar {
 
     pub fn max(&self) -> usize {
         self.max
-    }
-
-    /// Right-aligns `text`, padded or truncated to exactly `action_width` characters.
-    fn set_good_size(&self, text: &str) -> String {
-        format!("{text:>width$.width$}", width = self.action_width)
     }
 
     /// Set the width of the progress bar in characters in console (default: 50)
@@ -151,25 +154,9 @@ impl ProgressBar {
     pub fn set_progress(&mut self, p: usize) {
         if let Some(eta) = &mut self.eta {
             if p < self.progress {
-                eta.last_progress = p;
-                eta.last_time = Instant::now();
-                eta.speed = 0.0;
+                eta.reset(p, self.clock.now());
             } else if self.progress < p {
-                let now = Instant::now();
-                let delta_time = now.duration_since(eta.last_time).as_secs_f64();
-
-                // Only update EMA if a meaningful time window has elapsed
-                if delta_time >= eta.update_period.as_secs_f64() {
-                    let delta_progress = (p - eta.last_progress) as f64;
-                    let instant_speed = delta_progress / delta_time;
-                    if eta.speed == 0.0 {
-                        eta.speed = instant_speed;
-                    } else {
-                        eta.speed = eta.smoothing_factor * instant_speed + (1.0 - eta.smoothing_factor) * eta.speed;
-                    }
-                    eta.last_progress = p;
-                    eta.last_time = now;
-                }
+                eta.update(p, self.clock.now());
             }
         }
         self.progress = p;
@@ -190,15 +177,7 @@ impl ProgressBar {
     /// **Resets progress** and enables ETA (resets its style too).
     pub fn enable_eta(&mut self, smoothing_factor: f64) {
         self.progress = 0;
-        self.eta = Some(EtaData {
-            smoothing_factor,
-            last_progress: 0,
-            last_time: Instant::now(),
-            speed: 0.0,
-            color: None,
-            style: None,
-            update_period: Duration::from_secs(1),
-        });
+        self.eta = Some(EtaData::new(smoothing_factor, self.clock.now()));
     }
 
     /// Disables ETA
@@ -246,89 +225,90 @@ impl ProgressBar {
 
     /// Set the global action displayed before the progress bar.
     pub fn set_action(&mut self, a: &str, c: Color, s: Style) {
-        self.action = self.set_good_size(a);
+        self.action = Some(a.to_string());
         self.action_color = c;
         self.action_style = s;
         self.display();
     }
 
+    fn write_info(&self, info_name: &str, text: impl fmt::Display, info_color: Color, info_style: Style) {
+        let out = &mut Stdout;
+        let _ = (|| {
+            write!(out, "{}{}", self.sgr(info_style), self.sgr(info_color))?;
+            write_sized(out, info_name, self.action_width)?;
+            writeln!(out, "{} {text}\x1B[K", self.sgr(RESET))
+        })();
+    }
+
     /// Log something, without display update
-    pub fn print_final_info(&mut self, info_name: &str, text: &str, info_color: Color, info_style: Style) {
-        let info_name = self.set_good_size(info_name);
-        println!("{}{}{}{} {}\x1B[K", self.sgr(info_style), self.sgr(info_color), info_name, self.sgr(RESET), text);
+    pub fn print_final_info(&mut self, info_name: &str, text: impl fmt::Display, info_color: Color, info_style: Style) {
+        self.write_info(info_name, text, info_color, info_style);
         self.progress = 0;
         if let Some(eta) = &mut self.eta {
-            eta.last_progress = 0;
-            eta.last_time = Instant::now();
-            eta.speed = 0.0;
+            eta.reset(0, self.clock.now());
         }
     }
 
     /// Log something
-    pub fn print_info(&mut self, info_name: &str, text: &str, info_color: Color, info_style: Style) {
-        let info_name = self.set_good_size(info_name);
-        println!("{}{}{}{} {}\x1B[K", self.sgr(info_style), self.sgr(info_color), info_name, self.sgr(RESET), text);
+    pub fn print_info(&mut self, info_name: &str, text: impl fmt::Display, info_color: Color, info_style: Style) {
+        self.write_info(info_name, text, info_color, info_style);
         self.display();
     }
 
     /// Display the bar
     pub fn display(&self) {
-        print!("{}{}{}{}\x1B[K", self.sgr(self.action_style), self.sgr(self.action_color), self.action, self.sgr(RESET));
+        let _ = self.render(&mut Stdout);
+        let _ = io::stdout().flush();
+    }
 
-        print!(" [");
+    fn render(&self, out: &mut impl Write) -> fmt::Result {
+        write!(out, "{}{}", self.sgr(self.action_style), self.sgr(self.action_color))?;
+        if let Some(action) = &self.action {
+            write_sized(out, action, self.action_width)?;
+        }
+        write!(out, "{}\x1B[K", self.sgr(RESET))?;
+
+        out.write_str(" [")?;
         for i in 0..self.width {
             if i*self.max/self.width < self.progress {
                 if (i+1)*self.max/self.width >= self.progress {
-                    print!(">");
+                    out.write_char('>')?;
                 } else {
-                    print!("=");
+                    out.write_char('=')?;
                 }
             } else {
-                print!(" ");
+                out.write_char(' ')?;
             }
         }
 
-        print!("] ");
+        out.write_str("] ")?;
         match self.progress_style {
-            ProgressStyle::Number => print!("{}/{}", self.progress, self.max),
+            ProgressStyle::Number => write!(out, "{}/{}", self.progress, self.max)?,
             ProgressStyle::Percentage => if self.max != 0 {
-                    print!("{}%", (self.progress as f64 / self.max as f64 * 100.0) as usize);
+                write!(out, "{}%", (self.progress as f64 / self.max as f64 * 100.0) as usize)?;
             }
             ProgressStyle::Empty => (),
         }
 
-        if let Some(eta) = &self.eta && self.max != 0 && eta.speed != 0.0 && self.progress != self.max {
-            let remaining_progress = self.max.saturating_sub(self.progress) as f64;
-            let remaining_time = remaining_progress / eta.speed;
-            let remaining_ms = (remaining_time * 1000.0) as usize;
+        if let Some(eta) = &self.eta && let Some(remaining) = eta.remaining(self.progress, self.max) {
+            let styled = self.colors && (eta.color.is_some() || eta.style.is_some());
+            out.write_char(' ')?;
+            if styled {
+                if let Some(style) = eta.style {
+                    write!(out, "{style}")?;
+                }
+                if let Some(color) = eta.color {
+                    write!(out, "{color}")?;
+                }
+            }
 
-            const SECS_110: usize = 110 * 1000;
-            const MINS_110: usize = 110 * 60 * 1000;
-            const HOURS_46: usize = 46 * 60 * 60 * 1000;
+            write!(out, "(ETA {remaining})")?;
 
-            #[allow(overlapping_range_endpoints)]
-            #[allow(clippy::match_overlapping_arm)]
-            let eta_str = match remaining_ms {
-                0..=3_000 => format!("{}ms", remaining_ms),
-                3_001..=SECS_110 => format!("{}s", remaining_time.ceil() as usize),
-                SECS_110..=MINS_110 => format!("{} minutes", (remaining_time / 60.).ceil() as usize),
-                MINS_110..=HOURS_46 => format!("{} hours", (remaining_time / 3600.).ceil() as usize),
-                _ => format!("{} days", (remaining_time / 86400.).ceil() as usize),
-            };
-
-            let color_code = eta.color.map(|c| c.to_string()).unwrap_or_default();
-            let style_code = eta.style.map(|s| s.to_string()).unwrap_or_default();
-
-            if self.colors && (eta.color.is_some() || eta.style.is_some()) {
-                print!(" {style_code}{color_code}(ETA {eta_str})\x1B[0m");
-            } else {
-                print!(" (ETA {eta_str})");
+            if styled {
+                out.write_str(RESET)?;
             }
         }
-        print!("\n\x1B[1A");
-
-        #[allow(unused_must_use)]
-        { io::stdout().flush(); }
+        out.write_str("\n\x1B[1A")
     }
     
     /// Mark the end of the progress bar - updates will make a 'new' bar
@@ -344,31 +324,48 @@ mod tests {
     use super::*;
 
     #[test]
-    fn good_size_counts_characters() {
-        let progress_bar = ProgressBar::new(1);
-        assert_eq!(progress_bar.set_good_size("Loading"), "     Loading");
-        assert_eq!(progress_bar.set_good_size("Exactly12chr"), "Exactly12chr");
-        assert_eq!(progress_bar.set_good_size("A very long action"), "A very long ");
-        // used to panic: byte 12 is inside 'é'
-        assert_eq!(progress_bar.set_good_size("Écriture télémétrie"), "Écriture tél");
-        assert_eq!(progress_bar.set_good_size("Échec"), "       Échec");
+    fn sized_text() {
+        let mut out = String::new();
+        write_sized(&mut out, "Loading", 12).unwrap();
+        write_sized(&mut out, "A very long action", 12).unwrap();
+        write_sized(&mut out, "Exactly12chr", 12).unwrap();
+        write_sized(&mut out, "Échec", 3).unwrap();
+        write_sized(&mut out, "Écriture télémétrie", 12).unwrap();
+        assert_eq!(out, "     LoadingA very long Exactly12chrÉchÉcriture tél");
     }
 
     #[test]
     fn eta_after_final_info() {
-        let mut progress_bar = ProgressBar::new_with_eta(0.2, 100);
-        progress_bar.set_eta_update_period(Duration::from_millis(1));
-        std::thread::sleep(Duration::from_millis(2));
+        use std::cell::Cell;
+        let time = Cell::new(Duration::ZERO);
+        let mut progress_bar = ProgressBar::with_clock(100, || time.get());
+        progress_bar.enable_eta(0.2);
+        time.set(Duration::from_secs(2));
         progress_bar.set_progress(50);
         progress_bar.print_final_info("Done", "first batch", Color::Green, Style::Bold);
-        std::thread::sleep(Duration::from_millis(2));
+        time.set(Duration::from_secs(4));
         // used to underflow: the ETA still remembered progress 50
         progress_bar.set_progress(10);
     }
 
     #[test]
-    fn no_color() {
-        assert_eq!(Sgr(Color::Red, true).to_string(), "\x1B[31m");
-        assert_eq!(Sgr(Color::Red, false).to_string(), "");
+    fn eta_with_custom_clock() {
+        use std::cell::Cell;
+        let time = Cell::new(Duration::ZERO);
+        let mut progress_bar = ProgressBar::with_clock(100, || time.get());
+        progress_bar.set_colors(false);
+        progress_bar.enable_eta(0.2);
+        time.set(Duration::from_secs(2));
+        progress_bar.set_progress(10); // 5 items/s, 90 remaining
+        let mut out = String::new();
+        progress_bar.render(&mut out).unwrap();
+        assert!(out.ends_with("10/100 (ETA 18s)\n\x1B[1A"), "{out:?}");
+
+        // a clock that didn't advance doesn't produce an infinite speed
+        progress_bar.set_progress(20);
+        let mut out = String::new();
+        progress_bar.render(&mut out).unwrap();
+        assert!(out.ends_with("20/100 (ETA 16s)\n\x1B[1A"), "{out:?}");
     }
+
 }

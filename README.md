@@ -12,6 +12,7 @@ It can estimate and display the remaining time, and includes logging utilities t
 - Output log messages above the progress bar
 - Estimate and display remaining time
 - Integrate seamlessly with Rust’s `log` crate
+- Respect the [`NO_COLOR`](https://no-color.org/) environment variable
 
 ## Example
 

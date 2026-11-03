@@ -116,6 +116,14 @@ pub fn set_progress_style(style: ProgressStyle) {
     }
 }
 
+/// See [ProgressBar::set_colors]
+pub fn set_progress_bar_colors(enabled: bool) {
+    match *CURRENT_PROGRESS_BAR.lock().unwrap() {
+        Some(ref mut progress_bar) => progress_bar.set_colors(enabled),
+        None => eprintln!("ERROR: Unable to set progress bar colors (no progress bar)"),
+    }
+}
+
 pub fn print_progress_bar_info(info_name: &str, text: &str, info_color: Color, info_style: Style) {
     match *CURRENT_PROGRESS_BAR.lock().unwrap() {
         Some(ref mut progress_bar) => progress_bar.print_info(info_name, text, info_color, info_style),

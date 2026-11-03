@@ -43,13 +43,6 @@ impl<T: fmt::Display> fmt::Display for Sgr<T> {
     }
 }
 
-/// Whether colors should be enabled given the value of the `NO_COLOR` environment variable.
-///
-/// See <https://no-color.org/>: colors are disabled when `NO_COLOR` is present and not empty.
-fn colors_enabled(no_color: Option<&OsStr>) -> bool {
-    no_color.is_none_or(OsStr::is_empty)
-}
-
 impl ProgressBar {
     /// Creates a progress bar with the total number of actions.  
     /// You will need to call inc method when an action is completed and the bar progress will be incremented by 1.  
@@ -95,7 +88,7 @@ impl ProgressBar {
             progress_style: ProgressStyle::Number,
             action_width: 12,
             eta: None,
-            colors: colors_enabled(std::env::var_os("NO_COLOR").as_deref()),
+            colors: std::env::var_os("NO_COLOR").as_deref().is_none_or(OsStr::is_empty),
         }
     }
 
@@ -375,11 +368,6 @@ mod tests {
 
     #[test]
     fn no_color() {
-        assert!(colors_enabled(None));
-        assert!(colors_enabled(Some(OsStr::new(""))));
-        assert!(!colors_enabled(Some(OsStr::new("1"))));
-        assert!(!colors_enabled(Some(OsStr::new("false"))));
-
         assert_eq!(Sgr(Color::Red, true).to_string(), "\x1B[31m");
         assert_eq!(Sgr(Color::Red, false).to_string(), "");
     }

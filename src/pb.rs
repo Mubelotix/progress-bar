@@ -25,11 +25,29 @@ pub struct ProgressBar<C = StdClock> {
 }
 
 /// Writes to stdout, so that rendering doesn't need intermediate `String`s.
+///
+/// It goes through `print!` rather than `io::stdout()`, so that `cargo test` captures the output.
 struct Stdout;
 
 impl Write for Stdout {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        io::stdout().write_all(s.as_bytes()).map_err(|_| fmt::Error)
+        print!("{s}");
+        Ok(())
+    }
+
+    // A single `print!` takes the stdout lock once, so a line can't be interleaved with other threads' output.
+    fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> fmt::Result {
+        print!("{args}");
+        Ok(())
+    }
+}
+
+/// Displays through a closure, so a whole line reaches the output as a single `write_fmt` call.
+struct DisplayFn<F: Fn(&mut fmt::Formatter<'_>) -> fmt::Result>(F);
+
+impl<F: Fn(&mut fmt::Formatter<'_>) -> fmt::Result> fmt::Display for DisplayFn<F> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (self.0)(f)
     }
 }
 
@@ -232,12 +250,12 @@ impl<C: Clock> ProgressBar<C> {
     }
 
     fn write_info(&self, info_name: &str, text: impl fmt::Display, info_color: Color, info_style: Style) {
-        let out = &mut Stdout;
-        let _ = (|| {
-            write!(out, "{}{}", self.sgr(info_style), self.sgr(info_color))?;
-            write_sized(out, info_name, self.action_width)?;
-            writeln!(out, "{} {text}\x1B[K", self.sgr(RESET))
-        })();
+        let line = DisplayFn(|f| {
+            write!(f, "{}{}", self.sgr(info_style), self.sgr(info_color))?;
+            write_sized(f, info_name, self.action_width)?;
+            writeln!(f, "{} {text}\x1B[K", self.sgr(RESET))
+        });
+        let _ = write!(Stdout, "{line}");
     }
 
     /// Log something, without display update
@@ -257,7 +275,7 @@ impl<C: Clock> ProgressBar<C> {
 
     /// Display the bar
     pub fn display(&self) {
-        let _ = self.render(&mut Stdout);
+        let _ = write!(Stdout, "{}", DisplayFn(|f| self.render(f)));
         let _ = io::stdout().flush();
     }
 

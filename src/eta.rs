@@ -1,8 +1,8 @@
 //! Estimation of the remaining time (ETA).
 
 use crate::style::{Color, Style};
-use std::fmt;
-use std::time::Duration;
+use core::fmt;
+use core::time::Duration;
 
 /// The state of the ETA estimation of a [`ProgressBar`](crate::pb::ProgressBar).
 ///
@@ -102,7 +102,7 @@ fn ceil_usize(x: f64) -> usize {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
 

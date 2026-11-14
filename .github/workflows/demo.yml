@@ -1,0 +1,33 @@
+name: Demo GIF
+
+# Re-records media/demo.gif (shown in the README) whenever the rendering may have changed.
+on:
+  push:
+    branches: [ "master" ]
+    paths:
+      - "src/**"
+      - "examples/demo.rs"
+      - "media/demo.tape"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  record:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+    - name: Build the demo
+      run: cargo build --example demo
+    - name: Record the GIF
+      uses: charmbracelet/vhs-action@v2
+      with:
+        path: media/demo.tape
+    - name: Commit the GIF
+      uses: stefanzweifel/git-auto-commit-action@v7
+      with:
+        commit_message: Update demo GIF
+        file_pattern: media/demo.gif
